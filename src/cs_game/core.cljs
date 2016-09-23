@@ -2,7 +2,8 @@
   (:require [cs-game.ces :as ces]
             [cs-game.keyboard :as keyboard]
             [cs-game.canvas :as canvas]
-            [cs-game.maths :as maths]))
+            [cs-game.maths :as maths])
+  (:require-macros [cs-game.canvas :as canvas]))
 
 (enable-console-print!)
 
@@ -96,7 +97,7 @@
 
 (def canvas-el (.getElementById js/document "app-canvas"))
 (canvas/set-size canvas-el initial-world-dimensions)
-(def ctx (canvas/context canvas-el))
+(def g-ctx (canvas/context canvas-el))
 
 (defn delta-vector [world v]
   (let [delta (:delta world)]
@@ -246,40 +247,36 @@
                           collision-groups)]
     [(vals updated-entity-by-id) updated-world]))
 
-(defmulti draw (fn [entity world] (:view entity)))
+(defmulti draw (fn [ctx entity world] (:view entity)))
 
-(defmethod draw :laser [laser _]
-  (canvas/save ctx)
-  (canvas/translate ctx (:position laser))
-  (canvas/rotate ctx (maths/degrees-to-radians (:rotation laser)))
-  (canvas/fill-style ctx "red")
-  (let [size (:size laser)]
-    (canvas/fill-centered-rect ctx [0 0] [size (/ size 4)]))
-  (canvas/restore ctx))
+(defmethod draw :laser [ctx laser _]
+  (canvas/state ctx
+                (canvas/translate ctx (:position laser))
+                (canvas/rotate ctx (maths/degrees-to-radians (:rotation laser)))
+                (canvas/fill-style ctx "red")
+                (let [size (:size laser)]
+                  (canvas/fill-centered-rect ctx [0 0] [size (/ size 4)]))))
 
-(defmethod draw :player [player _]
-  (canvas/save ctx)
-  (canvas/translate ctx (:position player))
-  (canvas/rotate ctx (maths/degrees-to-radians (:rotation player)))
-  (canvas/fill-style ctx "grey")
-  (let [size (:size player)]
-    (canvas/begin-path ctx)
-    (canvas/move-to ctx [(* size 0.7) 0])
-    (canvas/line-to ctx [(- (* size 0.3)) (* size 0.25)])
-    (canvas/line-to ctx [(- (* size 0.3)) (- (* size 0.25))])
-    (canvas/fill ctx))
-  (canvas/restore ctx))
+(defmethod draw :player [ctx player _]
+  (canvas/state ctx
+                (canvas/translate ctx (:position player))
+                (canvas/rotate ctx (maths/degrees-to-radians (:rotation player)))
+                (canvas/fill-style ctx "grey")
+                (let [size (:size player)]
+                  (canvas/path :fill
+                               (canvas/move-to ctx [(* size 0.7) 0])
+                               (canvas/line-to ctx [(- (* size 0.3)) (* size 0.25)])
+                               (canvas/line-to ctx [(- (* size 0.3)) (- (* size 0.25))])))))
 
-(defmethod draw :asteroid [asteroid _]
-  (canvas/save ctx)
-  (canvas/translate ctx (:position asteroid))
-  (canvas/rotate ctx (maths/degrees-to-radians (:rotation asteroid)))
-  (canvas/fill-style ctx "saddlebrown")
-  (canvas/begin-path ctx)
-  (let [radius (/ (:size asteroid) 2)]
-    (canvas/centered-circle ctx [0 0] radius))
-  (canvas/fill ctx)
-  (canvas/restore ctx))
+(defmethod draw :asteroid [ctx asteroid _]
+  (canvas/state ctx
+                (canvas/translate ctx (:position asteroid))
+                (canvas/rotate ctx (maths/degrees-to-radians (:rotation asteroid)))
+                (canvas/fill-style ctx "saddlebrown")
+                (canvas/begin-path ctx)
+                (let [radius (/ (:size asteroid) 2)]
+                  (canvas/centered-circle ctx [0 0] radius))
+                (canvas/fill ctx)))
 
 (def update-systems
   [{:filter-fn :key-bindings
@@ -308,15 +305,6 @@
     :multiple-entity-system? true
     :system-fn remove-entities}])
 
-(def render-system
-  {:filter-fn :view
-   :system-fn draw})
-
-(defn clear-screen [{:keys [dimensions]}]
-  (canvas/fill-style ctx "black")
-  (let [[width height] dimensions]
-    (canvas/fill-rect ctx [0 0] [width height])))
-
 (def update-fps 60)
 (def ideal-frame-time (/ 1000 update-fps))
 (defn get-time [] (.getTime (new js/Date)))
@@ -333,11 +321,16 @@
     (swap! world-atom assoc :last-tick-time current-time))
   (js/setTimeout #(update-loop world-atom) ideal-frame-time))
 
-(defn render-loop [world-atom]
+(defn clear-screen [ctx {:keys [dimensions]}]
+  (canvas/fill-style ctx "black")
+  (canvas/fill-rect ctx [0 0] dimensions))
+
+(defn render-loop [ctx world-atom]
   (let [world @world-atom]
-    (clear-screen world)
-    (ces/run-systems world [render-system])
-    (.requestAnimationFrame js/window #(render-loop world-atom))))
+    (clear-screen ctx world)
+    (doseq [entity (filter :view (vals (:entity-by-id world)))]
+      (draw ctx entity world))
+    (.requestAnimationFrame js/window #(render-loop ctx world-atom))))
 
 (defn on-resize []
   (let [world-dimensions (get-window-dimensions)]
@@ -348,7 +341,7 @@
   (.addEventListener js/window "resize" on-resize)
   (keyboard/add-listeners)
   (swap! g-world-atom assoc :last-tick-time (get-time))
-  (render-loop g-world-atom)
+  (render-loop g-ctx g-world-atom)
   (update-loop g-world-atom))
 
 (defn on-js-reload []

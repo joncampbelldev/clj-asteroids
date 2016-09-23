@@ -4,8 +4,7 @@
   (let [result (system-fn entity world)]
     (cond
       (vector? result) result
-      (map? result) [result world]
-      (nil? result) [entity world])))
+      (map? result) [result world])))
 
 (defn run-single-entity-system [system-fn entities world]
   (reduce
