@@ -3,7 +3,8 @@
             [cs-game.keyboard :as keyboard]
             [cs-game.canvas :as canvas]
             [cs-game.maths :as maths])
-  (:use [cs-game.expanded-lang])
+  (:use [cs-game.expanded-lang :only [get-window-dimensions
+                                      get-time]])
   (:require-macros [cs-game.canvas :as canvas]))
 
 (enable-console-print!)
@@ -19,15 +20,6 @@
                        :up 38
                        :down 40
                        :shoot 13})
-
-(def example-world
-  {:entities [{:id 0} nil {:id 2}]
-   :delta 1.001
-   :last-tick-time 9999999
-   :reusable-ids [2]
-
-   :dimensions [640 480]
-   :collision-groups #{[:player :enemy] [:enemy :bullet]}})
 
 ;declare some js globals because cursive doesn't know about them
 (declare .requestAnimationFrame)
@@ -64,23 +56,13 @@
          :wrap true})
       (range 20))))
 
-(defn add-entity-to-world [entity world]
-  (let [reusable-ids (:reusable-ids world)
-        [id leftover-reusable-ids] (if (empty? reusable-ids)
-                                     [(count (:entities world)) reusable-ids]
-                                     [(peek reusable-ids) (pop reusable-ids)])
-        entity-with-id (assoc entity :id id)]
-    (as-> world w
-          (assoc w :reusable-ids leftover-reusable-ids)
-          (update w :entities assoc id entity-with-id))))
-
 (def initial-world
   (reduce
-    #(add-entity-to-world %2 %1)
-    {:collision-groups #{[:player :player] [:player :asteroid] [:asteroid :laser]}
-     :entities []
-     :reusable-ids []
-     :dimensions initial-world-dimensions}
+    #(ces/add-entity-to-world %2 %1)
+    (merge
+      ces/blank-world
+      {:collision-groups #{[:player :player] [:player :asteroid] [:asteroid :laser]}
+       :dimensions initial-world-dimensions})
     (conj initial-asteroids initial-player1 initial-player2)))
 
 (defonce g-world-atom (atom initial-world))
@@ -110,7 +92,7 @@
 
 (defn create-laser-at-entity [entity]
   (let [rotation (maths/degrees-to-radians (:rotation entity))
-        laser-speed 1
+        laser-speed 10
         velocity [(* laser-speed (Math/cos rotation)) (* laser-speed (Math/sin rotation))]]
     {:position (:position entity)
      :velocity velocity
@@ -121,8 +103,8 @@
 
 (defn keyboard-shoot [entity world]
   (let [key-bindings (:key-bindings entity)]
-    (if (keyboard/held? (:shoot key-bindings))
-      [entity (add-entity-to-world (create-laser-at-entity entity) world)]
+    (if (keyboard/just-down? (:shoot key-bindings))
+      [entity (ces/add-entity-to-world (create-laser-at-entity entity) world)]
       [entity world])))
 
 (defn wrap [entity world]
@@ -139,9 +121,6 @@
       (< y top) (assoc entity :position [x bottom])
       (> y bottom) (assoc entity :position [x top])
       :else entity)))
-
-(defn accelerating [entity world]
-  (update entity :velocity maths/vec+ (delta-vector world (:acceleration entity))))
 
 (defn moving [entity world]
   (update entity :position maths/vec+ (delta-vector world (:velocity entity))))
@@ -164,18 +143,10 @@
       (> y bottom) (assoc entity :remove true)
       :else entity)))
 
-(defn remove-entities [entity-indexes initial-world]
-  (as-> initial-world w
-        (reduce
-          (fn [world entity-index] (update world :entities assoc entity-index nil))
-          w
-          entity-indexes)
-        (update w :reusable-ids concatv entity-indexes)))
-
 (defmulti detect-collision-between
           (fn [left-entity right-entity _]
-            [(get-in left-entity [:collision :label])
-             (get-in right-entity [:collision :label])]))
+            [(:collision left-entity)
+             (:collision right-entity)]))
 
 (defmethod detect-collision-between [:player :player] [left-player right-player world]
   [left-player right-player world])
@@ -184,7 +155,13 @@
   [asteroid laser world])
 
 (defmethod detect-collision-between [:player :asteroid] [player asteroid world]
-  [player asteroid world])
+  (let [[dx dy] (maths/vec- (:position player) (:position asteroid))
+        dist-sq (+ (* dx dx) (* dy dy))
+        min-dist (+ (/ (:size player) 2) (/ (:size asteroid) 2))
+        min-dist-sq (* min-dist min-dist)
+        colliding? (< dist-sq min-dist-sq)
+        updated-asteroid (if colliding? (assoc asteroid :remove true) asteroid)]
+    [player updated-asteroid world]))
 
 (defn detect-collision-if-necessary [[world collision-index-pairs] left-entity-index right-entity-index]
   (let [entities (:entities world)
@@ -206,8 +183,8 @@
     [updated-world updated-collision-index-pairs]))
 
 (defn detect-collisions-in-group [initial-world [left-label right-label] entity-indexes-by-label]
-  (let [left-entity-indexes (entity-indexes-by-label left-label)
-        right-entity-indexes (entity-indexes-by-label right-label)
+  (let [left-entity-indexes (get entity-indexes-by-label left-label)
+        right-entity-indexes (get entity-indexes-by-label right-label)
         collision-index-pairs #{}
         [updated-world] (reduce
                           (fn [[world collision-index-pairs] left-entity-id]
@@ -219,8 +196,10 @@
                           left-entity-indexes)]
     updated-world))
 
+;optimisation available: cache entity-index-by-label on add/remove by wrapping add/remove ces functions
 (defn collision-system [entity-indexes world]
-  (let [entity-indexes-by-label (group-by-transform :collision :id entity-indexes)]
+  (let [entities (:entities world)
+        entity-indexes-by-label (group-by #(:collision (nth entities %)) entity-indexes)]
     (reduce
       #(detect-collisions-in-group %1 %2 entity-indexes-by-label)
       world
@@ -239,9 +218,6 @@
    {:filter-fn :velocity
     :system-fn moving}
 
-   {:filter-fn :acceleration
-    :system-fn accelerating}
-
    {:filter-fn :rotate-speed
     :system-fn rotating}
 
@@ -254,7 +230,7 @@
 
    {:filter-fn :remove
     :multiple-entity-system? true
-    :system-fn remove-entities}])
+    :system-fn ces/remove-entities}])
 
 (def update-fps 60)
 (def ideal-frame-time (/ 1000 update-fps))
@@ -291,8 +267,8 @@
     (let [size (:size player)]
       (canvas/begin-path ctx)
       (canvas/move-to ctx [(* size 0.7) 0])
-      (canvas/line-to ctx [(- (* size 0.3)) (* size 0.25)])
-      (canvas/line-to ctx [(- (* size 0.3)) (- (* size 0.25))])
+      (canvas/line-to ctx [(- (* size 0.3)) (* size 0.4)])
+      (canvas/line-to ctx [(- (* size 0.3)) (- (* size 0.4))])
       (canvas/fill ctx))))
 
 (defmethod draw :asteroid [ctx asteroid _]
