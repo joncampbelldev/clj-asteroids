@@ -2,7 +2,8 @@
   (:require [cs-game.ces :as ces]
             [cs-game.keyboard :as keyboard]
             [cs-game.canvas :as canvas]
-            [cs-game.maths :as maths])
+            [cs-game.maths :as maths]
+            [cs-game.collisions :as collisions])
   (:use [cs-game.expanded-lang :only [get-window-dimensions
                                       get-time]])
   (:require-macros [cs-game.canvas :as canvas]))
@@ -32,6 +33,7 @@
      :velocity [0 0]
      :rotation 0
      :size 30
+     :health 100
      :view :player
      :key-bindings player1-bindings
      :collision :player
@@ -41,6 +43,7 @@
      :velocity [0 0]
      :rotation 0
      :size 30
+     :health 100
      :view :player
      :key-bindings player2-bindings
      :collision :player
@@ -51,17 +54,20 @@
         {:position [(rand initial-world-width) (rand initial-world-height)]
          :velocity [(- (rand 2) 1) (- (rand 2) 1)]
          :size (+ 10 (rand 80))
+         :health 100
          :view :asteroid
          :collision :asteroid
          :wrap true})
-      (range 20))))
+      (range 100))))
+
+(def initial-collision-groups #{[:player :player] [:player :asteroid] [:asteroid :laser]})
 
 (def initial-world
   (reduce
     #(ces/add-entity-to-world %2 %1)
     (merge
       ces/blank-world
-      {:collision-groups #{[:player :player] [:player :asteroid] [:asteroid :laser]}
+      {:collision-groups initial-collision-groups
        :dimensions initial-world-dimensions})
     (conj initial-asteroids initial-player1 initial-player2)))
 
@@ -82,8 +88,8 @@
     (update entity :velocity maths/vec+ acceleration)))
 
 (defn keyboard-move [entity world]
-  (let [rotate-magnitude 5
-        accel-magnitude 0.1
+  (let [rotate-magnitude 10
+        accel-magnitude 0.2
         key-bindings (:key-bindings entity)]
     (as-> entity e
           (if (keyboard/held? (:up key-bindings)) (accelerate-forwards entity (* (:delta world) accel-magnitude)) e)
@@ -92,7 +98,7 @@
 
 (defn create-laser-at-entity [entity]
   (let [rotation (maths/degrees-to-radians (:rotation entity))
-        laser-speed 10
+        laser-speed 20
         velocity [(* laser-speed (Math/cos rotation)) (* laser-speed (Math/sin rotation))]]
     {:position (:position entity)
      :velocity velocity
@@ -143,67 +149,21 @@
       (> y bottom) (assoc entity :remove true)
       :else entity)))
 
-(defmulti detect-collision-between
-          (fn [left-entity right-entity _]
-            [(:collision left-entity)
-             (:collision right-entity)]))
-
-(defmethod detect-collision-between [:player :player] [left-player right-player world]
+(defmethod collisions/detect-between [:player :player] [left-player right-player world]
   [left-player right-player world])
 
-(defmethod detect-collision-between [:asteroid :laser] [asteroid laser world]
+(defmethod collisions/detect-between [:asteroid :laser] [asteroid laser world]
   [asteroid laser world])
 
-(defmethod detect-collision-between [:player :asteroid] [player asteroid world]
+(defmethod collisions/detect-between [:player :asteroid] [player asteroid world]
   (let [[dx dy] (maths/vec- (:position player) (:position asteroid))
         dist-sq (+ (* dx dx) (* dy dy))
         min-dist (+ (/ (:size player) 2) (/ (:size asteroid) 2))
         min-dist-sq (* min-dist min-dist)
         colliding? (< dist-sq min-dist-sq)
-        updated-asteroid (if colliding? (assoc asteroid :remove true) asteroid)]
-    [player updated-asteroid world]))
-
-(defn detect-collision-if-necessary [[world collision-index-pairs] left-entity-index right-entity-index]
-  (let [entities (:entities world)
-        left-entity (nth entities left-entity-index)
-        right-entity (nth entities right-entity-index)
-        index-pair #{left-entity-index right-entity-index}
-        should-collide? (not (or
-                               (= left-entity-index right-entity-index)
-                               (contains? collision-index-pairs index-pair)))
-        [updated-left-entity
-         updated-right-entity
-         updated-world] (if should-collide?
-                          (detect-collision-between left-entity right-entity world)
-                          [left-entity right-entity world])
-        updated-world (as-> updated-world w
-                            (update w :entities assoc left-entity-index updated-left-entity)
-                            (update w :entities assoc right-entity-index updated-right-entity))
-        updated-collision-index-pairs (conj collision-index-pairs index-pair)]
-    [updated-world updated-collision-index-pairs]))
-
-(defn detect-collisions-in-group [initial-world [left-label right-label] entity-indexes-by-label]
-  (let [left-entity-indexes (get entity-indexes-by-label left-label)
-        right-entity-indexes (get entity-indexes-by-label right-label)
-        collision-index-pairs #{}
-        [updated-world] (reduce
-                          (fn [[world collision-index-pairs] left-entity-id]
-                            (reduce
-                              #(detect-collision-if-necessary %1 left-entity-id %2)
-                              [world collision-index-pairs]
-                              right-entity-indexes))
-                          [initial-world collision-index-pairs]
-                          left-entity-indexes)]
-    updated-world))
-
-;optimisation available: cache entity-index-by-label on add/remove by wrapping add/remove ces functions
-(defn collision-system [entity-indexes world]
-  (let [entities (:entities world)
-        entity-indexes-by-label (group-by #(:collision (nth entities %)) entity-indexes)]
-    (reduce
-      #(detect-collisions-in-group %1 %2 entity-indexes-by-label)
-      world
-      (:collision-groups world))))
+        ;updated-asteroid (if colliding? (assoc asteroid :remove true) asteroid)
+        ]
+    [player asteroid world]))
 
 (def update-systems
   [{:filter-fn :key-bindings
@@ -226,25 +186,25 @@
 
    {:filter-fn :collision
     :multiple-entity-system? true
-    :system-fn collision-system}
+    :system-fn collisions/system}
 
    {:filter-fn :remove
     :multiple-entity-system? true
     :system-fn ces/remove-entities}])
 
-(def update-fps 60)
-(def ideal-frame-time (/ 1000 update-fps))
+(def fps 30)
+(def ideal-frame-time (/ 1000 fps))
 
 (defn update-loop [world-atom]
   (let [world @world-atom
-        last-tick-time (:last-tick-time world)
+        last-tick-time (:last-update-tick world)
         current-time (get-time)
         frame-time (- current-time last-tick-time)
         delta (/ frame-time ideal-frame-time)]
     (swap! world-atom assoc :delta delta)
     (keyboard/tick)
     (swap! world-atom ces/run-systems update-systems)
-    (swap! world-atom assoc :last-tick-time current-time))
+    (swap! world-atom assoc :last-update-tick current-time))
   (js/setTimeout #(update-loop world-atom) ideal-frame-time))
 
 (defmulti draw (fn [_ entity _] (:view entity)))
@@ -291,7 +251,16 @@
     (clear-screen ctx world)
     (doseq [entity (filter :view (:entities world))]
       (draw ctx entity world))
-    (.requestAnimationFrame js/window #(render-loop ctx world-atom))))
+    (let [current-time (get-time)
+          last-time (:last-render-tick world)
+          frame-duration (- current-time last-time)
+          true-fps (/ 1000 frame-duration)]
+      ;(println true-fps)
+      ))
+  (swap! world-atom assoc :last-render-tick (get-time))
+  (.requestAnimationFrame js/window #(render-loop ctx world-atom)))
+
+;current-time - last-time
 
 (defn on-resize []
   (let [world-dimensions (get-window-dimensions)]
@@ -301,7 +270,8 @@
 (defn start []
   (.addEventListener js/window "resize" on-resize)
   (keyboard/add-listeners)
-  (swap! g-world-atom assoc :last-tick-time (get-time))
+  (swap! g-world-atom assoc :last-update-tick (get-time))
+  (swap! g-world-atom assoc :last-render-tick (get-time))
   (render-loop g-ctx g-world-atom)
   (update-loop g-world-atom))
 
