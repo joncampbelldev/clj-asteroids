@@ -1,7 +1,7 @@
 (ns cs-game.canvas)
 
-(defmacro state [ctx & body]
-  (list 'do
-        (list '.save ctx)
-        (cons 'do body)
-        (list '.restore ctx)))
+(defmacro state [[context-name context] & body]
+  `(let [~context-name ~context]
+     (.save ~context-name)
+     ~@body
+     (.restore ~context-name)))

@@ -22,7 +22,6 @@
                        :down 40
                        :shoot 13})
 
-;declare some js globals because cursive doesn't know about them
 (declare .requestAnimationFrame)
 
 (def initial-world-dimensions (get-window-dimensions))
@@ -58,13 +57,13 @@
          :view :asteroid
          :collision :asteroid
          :wrap true})
-      (range 100))))
+      (range 200))))
 
 (def initial-collision-groups #{[:player :player] [:player :asteroid] [:asteroid :laser]})
 
 (def initial-world
   (reduce
-    #(ces/add-entity-to-world %2 %1)
+    (fn [world entity] (ces/add-entity-to-world entity world))
     (merge
       ces/blank-world
       {:collision-groups initial-collision-groups
@@ -108,10 +107,9 @@
      :remove-off-screen true}))
 
 (defn keyboard-shoot [entity world]
-  (let [key-bindings (:key-bindings entity)]
-    (if (keyboard/just-down? (:shoot key-bindings))
-      [entity (ces/add-entity-to-world (create-laser-at-entity entity) world)]
-      [entity world])))
+  (if (keyboard/just-down? (-> entity :key-bindings :shoot))
+    [entity (ces/add-entity-to-world (create-laser-at-entity entity) world)]
+    [entity world]))
 
 (defn wrap [entity world]
   (let [[x y] (:position entity)
@@ -161,9 +159,8 @@
         min-dist (+ (/ (:size player) 2) (/ (:size asteroid) 2))
         min-dist-sq (* min-dist min-dist)
         colliding? (< dist-sq min-dist-sq)
-        ;updated-asteroid (if colliding? (assoc asteroid :remove true) asteroid)
-        ]
-    [player asteroid world]))
+        updated-asteroid (if colliding? (assoc asteroid :remove true) asteroid)]
+    [player updated-asteroid world]))
 
 (def update-systems
   [{:filter-fn :key-bindings
@@ -210,37 +207,34 @@
 (defmulti draw (fn [_ entity _] (:view entity)))
 
 (defmethod draw :laser [ctx laser _]
-  (canvas/state
-    ctx
-    (canvas/translate ctx (:position laser))
-    (canvas/rotate ctx (maths/degrees-to-radians (:rotation laser)))
-    (canvas/fill-style ctx "red")
+  (canvas/state [c ctx]
+    (canvas/translate c (:position laser))
+    (canvas/rotate c (maths/degrees-to-radians (:rotation laser)))
+    (canvas/fill-style c "red")
     (let [size (:size laser)]
-      (canvas/fill-centered-rect ctx [0 0] [size (/ size 4)]))))
+      (canvas/fill-centered-rect c [0 0] [size (/ size 4)]))))
 
 (defmethod draw :player [ctx player _]
-  (canvas/state
-    ctx
-    (canvas/translate ctx (:position player))
-    (canvas/rotate ctx (maths/degrees-to-radians (:rotation player)))
-    (canvas/fill-style ctx "grey")
+  (canvas/state [c ctx]
+    (canvas/translate c (:position player))
+    (canvas/rotate c (maths/degrees-to-radians (:rotation player)))
+    (canvas/fill-style c "grey")
     (let [size (:size player)]
-      (canvas/begin-path ctx)
-      (canvas/move-to ctx [(* size 0.7) 0])
-      (canvas/line-to ctx [(- (* size 0.3)) (* size 0.4)])
-      (canvas/line-to ctx [(- (* size 0.3)) (- (* size 0.4))])
-      (canvas/fill ctx))))
+      (canvas/begin-path c)
+      (canvas/move-to c [(* size 0.7) 0])
+      (canvas/line-to c [(- (* size 0.3)) (* size 0.4)])
+      (canvas/line-to c [(- (* size 0.3)) (- (* size 0.4))])
+      (canvas/fill c))))
 
 (defmethod draw :asteroid [ctx asteroid _]
-  (canvas/state
-    ctx
-    (canvas/translate ctx (:position asteroid))
-    (canvas/rotate ctx (maths/degrees-to-radians (:rotation asteroid)))
-    (canvas/fill-style ctx "saddlebrown")
-    (canvas/begin-path ctx)
+  (canvas/state [c ctx]
+    (canvas/translate c (:position asteroid))
+    (canvas/rotate c (maths/degrees-to-radians (:rotation asteroid)))
+    (canvas/fill-style c "saddlebrown")
+    (canvas/begin-path c)
     (let [radius (/ (:size asteroid) 2)]
-      (canvas/centered-circle ctx [0 0] radius))
-    (canvas/fill ctx)))
+      (canvas/centered-circle c [0 0] radius))
+    (canvas/fill c)))
 
 (defn clear-screen [ctx {:keys [dimensions]}]
   (canvas/fill-style ctx "black")
@@ -254,13 +248,9 @@
     (let [current-time (get-time)
           last-time (:last-render-tick world)
           frame-duration (- current-time last-time)
-          true-fps (/ 1000 frame-duration)]
-      ;(println true-fps)
-      ))
+          true-fps (/ 1000 frame-duration)]))
   (swap! world-atom assoc :last-render-tick (get-time))
   (.requestAnimationFrame js/window #(render-loop ctx world-atom)))
-
-;current-time - last-time
 
 (defn on-resize []
   (let [world-dimensions (get-window-dimensions)]
@@ -275,8 +265,7 @@
   (render-loop g-ctx g-world-atom)
   (update-loop g-world-atom))
 
-#_(defn on-js-reload []
+(defn on-js-reload []
     (swap! g-world-atom update-in [:__figwheel_counter] inc))
 
 (defonce _ (start))
-_

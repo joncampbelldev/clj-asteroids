@@ -1,8 +1,5 @@
 (ns cs-game.expanded-lang)
 
-; (def v [{:id 1 :label: "test"} {:id 2 :label "test"} {:id 3 :label "other"}])
-; (group-by-transform :label :id v)
-; {"test" [1 2] "other" [3]}
 (defn group-by-transform [key-fn transform-fn coll]
   (reduce
     (fn [m e]
