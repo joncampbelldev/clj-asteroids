@@ -1,1 +1,1 @@
-# Asteroids in clojure (WIP)
+# Asteroids in clojurescript (WIP)
