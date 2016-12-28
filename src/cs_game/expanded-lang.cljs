@@ -1,11 +1,11 @@
 (ns cs-game.expanded-lang)
 
-(defn group-by-transform [key-fn transform-fn coll]
+(defn group-by-transform [key-fn transform-fn initial-collection coll]
   (reduce
     (fn [m e]
       (let [k (key-fn e)
             v (transform-fn e)]
-        (assoc m k (conj (get m k []) v))))
+        (assoc m k (conj (get m k initial-collection) v))))
     {}
     coll))
 
@@ -13,14 +13,20 @@
   (into [] (apply concat vs)))
 
 (defn index-by [key-fn coll]
-    (reduce
-      (fn [m e] (assoc m (key-fn e) e))
-      {}
-      coll))
+  (reduce
+    (fn [m e] (assoc m (key-fn e) e))
+    {}
+    coll))
 
-(defn println-value [v]
-    (println v)
-    v)
+(defn map-values
+  [f m]
+  (reduce-kv #(assoc %1 %2 (f %3)) {} m))
+
+(defn trace [v]
+  (println v)
+  v)
+
+(defn not-empty? [coll] (not (empty? coll)))
 
 (declare .-innerWidth .-innerHeight)
 (defn get-window-dimensions []

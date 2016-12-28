@@ -1,5 +1,62 @@
 (ns cs-game.ces
-  (:use [cs-game.expanded-lang :only [concatv]]))
+  (:require [cs-game.expanded-lang :refer [map-values]]))
+
+(defn key-for-system [{:keys [filter-fn label]}]
+  (if (keyword? filter-fn)
+    (or label filter-fn)
+    (or label (throw (js/Error "system must have a keyword as filter-fn or define a custom label")))))
+
+(defn safe-conj-to-set [set value]
+  (if (nil? set)
+    #{value}
+    (conj set value)))
+
+(defn system-keys-for-entity [entity systems]
+  (reduce
+    (fn [system-keys {:keys [filter-fn] :as system}]
+      (if (filter-fn entity)
+        (conj system-keys (key-for-system system))
+        system-keys))
+    #{}
+    systems))
+
+(defn add-entity-to-world [entity initial-world systems]
+  (let [reusuable-indexes (:reusable-indexes initial-world)
+        [entity-index leftover-reusable-indexes] (if (empty? reusuable-indexes)
+                                                   [(count (:entities initial-world)) reusuable-indexes]
+                                                   [(peek reusuable-indexes) (pop reusuable-indexes)])
+        indexed-entity (assoc entity :id entity-index)
+        system-keys (system-keys-for-entity entity systems)]
+    (as-> initial-world w
+          (assoc w :reusable-indexes leftover-reusable-indexes)
+          (update w :entities assoc entity-index indexed-entity)
+          (reduce
+            (fn [world system-key]
+              (update-in world [:entity-indexes-by-system system-key] #(safe-conj-to-set %1 entity-index)))
+            w
+            system-keys))))
+
+(defn add-entities-to-world [entities world systems]
+  (reduce
+    (fn [world entity] (add-entity-to-world entity world systems))
+    world
+    entities))
+
+(defn remove-entity [entity-index world]
+  (as-> world w
+        (update w :entities assoc entity-index nil)
+        (update
+          w
+          :entity-indexes-by-system
+          (fn [eids-by-s] (map-values #(disj % entity-index) eids-by-s)))
+        (update w :reusable-indexes conj entity-index)))
+
+(defn remove-entities [entity-indexes initial-world]
+  (reduce
+    (fn [world entity-index]
+      (remove-entity entity-index world))
+    initial-world
+    entity-indexes))
 
 (defn normalise-system-fn-call [system-fn entity world]
   (let [result (system-fn entity world)]
@@ -17,40 +74,23 @@
     initial-world
     entity-indexes))
 
-;optimisation available: cache entity-indexes-for-system on add/remove
-(defn run-system [{:keys [filter-fn system-fn multiple-entity-system?]} world]
-  (let [entity-indexes-for-system (as-> (:entities world) _
-                                        (filter filter-fn _)
-                                        (map :id _)
-                                        (into #{} _))]
-    (if multiple-entity-system?
-      (system-fn entity-indexes-for-system world)
-      (run-single-entity-system system-fn entity-indexes-for-system world))))
+(defn run-system [world {:keys [system-fn multiple-entity-system?] :as system}]
+  (let [system-key (key-for-system system)
+        entity-indexes-for-system (-> world :entity-indexes-by-system system-key)]
+    (if (empty? entity-indexes-for-system)
+      world
+      (if multiple-entity-system?
+        (system-fn entity-indexes-for-system world)
+        (run-single-entity-system system-fn entity-indexes-for-system world)))))
 
 (defn run-systems [world systems]
-  (reduce
-    (fn [w s] (run-system s w))
-    world
-    systems))
-
-(defn add-entity-to-world [entity world]
-  (let [reusable-ids (:reusable-ids world)
-        [id leftover-reusable-ids] (if (empty? reusable-ids)
-                                     [(count (:entities world)) reusable-ids]
-                                     [(peek reusable-ids) (pop reusable-ids)])
-        entity-with-id (assoc entity :id id)]
-    (as-> world w
-          (assoc w :reusable-ids leftover-reusable-ids)
-          (update w :entities assoc id entity-with-id))))
-
-(defn remove-entities [entity-indexes initial-world]
-  (as-> initial-world w
-        (reduce
-          (fn [world entity-index] (update world :entities assoc entity-index nil))
-          w
-          entity-indexes)
-        (update w :reusable-ids concatv entity-indexes)))
+  (as-> world w
+        (reduce run-system w systems)
+        (remove-entities
+          (->> (:entities w) (filter :remove) (map :id))
+          w)))
 
 (def blank-world
   {:entities []
-   :reusable-ids []})
+   :reusable-indexes []
+   :entity-indexes-by-system {}})

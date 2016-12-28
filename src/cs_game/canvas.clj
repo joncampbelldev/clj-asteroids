@@ -1,7 +1,11 @@
 (ns cs-game.canvas)
 
-(defmacro state [[context-name context] & body]
-  `(let [~context-name ~context]
-     (.save ~context-name)
+(defmacro fast-state [{:keys [context translate rotation]} & body]
+  `(let [[x# y#] ~translate]
+     (.translate ~context x# y#)
+     (if ~rotation
+        (.rotate ~context ~rotation))
      ~@body
-     (.restore ~context-name)))
+     (if ~rotation
+        (.rotate ~context (- ~rotation)))
+     (.translate ~context (- x#) (- y#))))

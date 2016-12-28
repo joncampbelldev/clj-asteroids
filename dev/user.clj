@@ -2,7 +2,7 @@
   (:require
    [figwheel-sidecar.repl-api :as f]))
 
-(defn fig-start
+(defn fig-start []
   (f/start-figwheel!))
 
 (defn fig-stop []
