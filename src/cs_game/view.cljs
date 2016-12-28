@@ -56,28 +56,41 @@
                (> e-bottom c-top))))
       entities)))
 
-(defn render [ctx world]
+(defn render [off-screen-el off-screen-ctx on-screen-ctx world]
   (let [drawable-entities (filter :view (:entities world))
-        [world-width world-height] (:dimensions world)]
+        [world-width world-height] (:dimensions world)
+        c off-screen-ctx]
     (doseq [camera (:cameras world)]
-      (canvas/fast-state {:context ctx
+      (canvas/fill-style c "black")
+      (canvas/fill-rect c 0 0 world-width world-height)
+
+      (canvas/fast-state {:context c
                           :translate (maths/vec+
                                        (maths/vec-negate (:position camera))
-                                       (maths/vec-div (:dimensions camera) [2 2])
-                                       (:screen-position camera))
+                                       (maths/vec-div (:dimensions camera) [2 2]))
                           :rotation 0}
+
         ;TODO tidy up render of world borders, only render when necessary
-        (canvas/fill-style ctx "black")
-        (canvas/fill-rect ctx 0 0 world-width world-height)
+        (canvas/stroke-style c "red")
+        (canvas/line-width c 4)
+        (canvas/stroke-rect c 0 0 world-width world-height)
 
         ;TODO only render necessary stars
-        (canvas/fill-style ctx "white")
+        (canvas/fill-style c "white")
         (doseq [star-position (:star-positions world)]
-          (canvas/begin-path ctx)
-          (canvas/centered-circle ctx star-position 2)
-          (canvas/fill ctx))
+          (canvas/begin-path c)
+          (canvas/centered-circle c star-position 2)
+          (canvas/fill c))
 
         (doseq [e (get-entities-seen-by-camera drawable-entities camera)]
-          (draw ctx e world))))
-    (canvas/fill-style ctx "white")
-    (canvas/fill-text ctx (str (.round js/Math (:fps world)) " fps") [20 20])))
+          (draw c e world)))
+      (let [[c-left c-top] (:screen-position camera)
+            [c-width c-height] (:dimensions camera)]
+        (.drawImage on-screen-ctx off-screen-el
+                    0 0 c-width c-height
+                    c-left c-top c-width c-height)
+        (canvas/stroke-style on-screen-ctx "white")
+        (canvas/line-width on-screen-ctx 4)
+        (canvas/stroke-rect on-screen-ctx c-left c-top c-width c-height)))
+    (canvas/fill-style on-screen-ctx "white")
+    (canvas/fill-text on-screen-ctx (str (.round js/Math (:fps world)) " fps") [20 20])))
