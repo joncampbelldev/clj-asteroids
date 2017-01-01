@@ -1,5 +1,5 @@
 (ns cs-game.ces
-  (:require [cs-game.expanded-lang :refer [map-values]]))
+  (:require [cs-game.expanded-lang :refer [map-values strict-empty?]]))
 
 (defn key-for-system [{:keys [filter-fn label]}]
   (if (keyword? filter-fn)
@@ -22,7 +22,7 @@
 
 (defn add-entity-to-world [entity initial-world systems]
   (let [reusuable-indexes (:reusable-indexes initial-world)
-        [entity-index leftover-reusable-indexes] (if (empty? reusuable-indexes)
+        [entity-index leftover-reusable-indexes] (if (strict-empty? reusuable-indexes)
                                                    [(count (:entities initial-world)) reusuable-indexes]
                                                    [(peek reusuable-indexes) (pop reusuable-indexes)])
         indexed-entity (assoc entity :id entity-index)
@@ -77,7 +77,7 @@
 (defn run-system [world {:keys [system-fn multiple-entity-system?] :as system}]
   (let [system-key (key-for-system system)
         entity-indexes-for-system (-> world :entity-indexes-by-system system-key)]
-    (if (empty? entity-indexes-for-system)
+    (if (strict-empty? entity-indexes-for-system)
       world
       (if multiple-entity-system?
         (system-fn entity-indexes-for-system world)
@@ -87,7 +87,7 @@
   (as-> world w
         (reduce run-system w systems)
         (remove-entities
-          (->> (:entities w) (filter :remove) (map :id))
+          (->> w :entities (filterv :remove) (map :id))
           w)))
 
 (def blank-world

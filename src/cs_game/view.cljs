@@ -1,6 +1,8 @@
 (ns cs-game.view
   (:require [cs-game.canvas :as canvas]
-            [cs-game.maths :as maths])
+            [cs-game.maths :as maths]
+            [cs-game.spatial-hashing :as spatial-hashing]
+            [cs-game.expanded-lang :refer [concatv]])
   (:require-macros [cs-game.canvas :as canvas]))
 
 (defmulti draw (fn [_ entity _] (:view entity)))
@@ -9,7 +11,7 @@
   (canvas/fast-state {:context ctx
                       :translate (:position laser)
                       :rotation (maths/degrees-to-radians (:rotation laser))}
-    (canvas/fill-style ctx "red")
+    (canvas/fill-style ctx (:color laser))
     (let [size (:size laser)]
       (canvas/fill-centered-rect ctx 0 0 size (/ size 4)))))
 
@@ -17,80 +19,111 @@
   (canvas/fast-state {:context ctx
                       :translate (:position player)
                       :rotation (maths/degrees-to-radians (:rotation player))}
-    (canvas/fill-style ctx "grey")
+    (canvas/fill-style ctx (:color player))
     (let [size (:size player)]
       (canvas/begin-path ctx)
-      (canvas/move-to ctx (* size 0.7) 0)
-      (canvas/line-to ctx (- (* size 0.3)) (* size 0.4))
-      (canvas/line-to ctx (- (* size 0.3)) (- (* size 0.4)))
-      (canvas/fill ctx))))
+      (canvas/move-to ctx (* size 0.4) 0)
+      (canvas/line-to ctx (- (* size 0.3)) (* size 0.2))
+      (canvas/line-to ctx (- (* size 0.3)) (- (* size 0.2)))
+      (canvas/fill ctx)
+
+      (canvas/stroke-style ctx "lightblue")
+      (canvas/line-width ctx 1)
+      (canvas/centered-circle ctx 0 0 (/ size 2))
+      (canvas/stroke ctx))))
 
 (defmethod draw :asteroid [ctx asteroid _]
   (canvas/fast-state {:context ctx
                       :translate (:position asteroid)
                       :rotation (maths/degrees-to-radians (:rotation asteroid))}
-    (canvas/fill-style ctx "saddlebrown")
+    (canvas/fill-style ctx (:color asteroid))
     (let [size (:size asteroid)]
       (canvas/fill-centered-rect ctx 0 0 size size))))
 
-(defn get-entities-seen-by-camera [entities camera]
-  (let [[cx cy] (:position camera)
-        [cw ch] (:dimensions camera)
-        c-half-width (/ cw 2)
-        c-half-height (/ ch 2)
-        c-left (- cx c-half-width)
-        c-right (+ cx c-half-width)
-        c-top (- cy c-half-height)
-        c-bottom (+ cy c-half-height)]
-    (filter
-      (fn [entity]
-        (let [[ex ey] (:position entity)
-              e-half-size (/ (:size entity) 2)
-              e-left (- ex e-half-size)
-              e-right (+ ex e-half-size)
-              e-top (- ey e-half-size)
-              e-bottom (+ ey e-half-size)]
-          (and (< e-left c-right)
-               (> e-right c-left)
-               (< e-top c-bottom)
-               (> e-bottom c-top))))
-      entities)))
+(def view->minimap-size {:player 5
+                         :laser 2
+                         :asteroid 3})
+(def minimap-size 250)
+(defn draw-mini-map [ctx drawable-entities world]
+  (let [[world-width world-height] (:dimensions world)
+        xscale (/ minimap-size world-width)
+        yscale (/ minimap-size world-height)]
+    (canvas/fill-style ctx "#222")
+    (canvas/draw-rounded-rect ctx 0 0 minimap-size minimap-size 20)
+    (canvas/fill ctx)
+    #_(doseq [e drawable-entities]
+        (let [[x y] (:position e)
+              scaled-x (* x xscale)
+              scaled-y (* y yscale)
+              size (:size e)
+              scaled-size (.ceil js/Math (* size (/ (+ xscale yscale) 2)))]
+          (canvas/fast-state {:context ctx
+                              :rotation (maths/degrees-to-radians (:rotation e))
+                              :translate [scaled-x scaled-y]}
+            (canvas/fill-style ctx (:minimap-color e))
+            (canvas/fill-centered-rect ctx 0 0 scaled-size scaled-size))))
+    (doseq [e drawable-entities]
+      (let [[x y] (:position e)
+            scaled-x (* x xscale)
+            scaled-y (* y yscale)
+            size (view->minimap-size (:view e))]
+        (canvas/fill-style ctx (:color e))
+        (canvas/fill-centered-rect ctx scaled-x scaled-y size size)))
+    (canvas/stroke-style ctx "white")
+    (canvas/line-width ctx 4)
+    (canvas/draw-rounded-rect ctx 0 0 minimap-size minimap-size 20)
+    (canvas/stroke ctx)))
 
 (defn render [off-screen-el off-screen-ctx on-screen-ctx world]
-  (let [drawable-entities (filter :view (:entities world))
-        [world-width world-height] (:dimensions world)
-        c off-screen-ctx]
-    (doseq [camera (:cameras world)]
-      (canvas/fill-style c "black")
-      (canvas/fill-rect c 0 0 world-width world-height)
+  (let [spatial-hash-config (:spatial-hash-config world)
 
-      (canvas/fast-state {:context c
-                          :translate (maths/vec+
-                                       (maths/vec-negate (:position camera))
-                                       (maths/vec-div (:dimensions camera) [2 2]))
-                          :rotation 0}
+        entities (:entities world)
+        drawable-entities (filterv :view entities)
+        entity-spatial-hash (spatial-hashing/build drawable-entities spatial-hash-config)
+
+        stars (:stars world)
+        star-spatial-hash (spatial-hashing/build stars spatial-hash-config)
+
+        [world-width world-height] (:dimensions world)
+        [screen-width] (:screen-dimensions world)
+        ctx off-screen-ctx]
+    (doseq [camera (:cameras world)]
+      (canvas/fill-style ctx "black")
+      (canvas/fill-rect ctx 0 0 world-width world-height)
+
+      (canvas/fast-state {:context ctx
+                          :translate (maths/v+
+                                       (maths/vneg (:position camera))
+                                       (maths/vdiv (:dimensions camera) [2 2]))}
 
         ;TODO tidy up render of world borders, only render when necessary
-        (canvas/stroke-style c "red")
-        (canvas/line-width c 4)
-        (canvas/stroke-rect c 0 0 world-width world-height)
+        (canvas/stroke-style ctx "red")
+        (canvas/line-width ctx 4)
+        (canvas/stroke-rect ctx 0 0 world-width world-height)
 
-        ;TODO only render necessary stars
-        (canvas/fill-style c "white")
-        (doseq [star-position (:star-positions world)]
-          (canvas/begin-path c)
-          (canvas/centered-circle c star-position 2)
-          (canvas/fill c))
+        (let [stars-for-camera (->> (spatial-hashing/nearby-entity-indexes star-spatial-hash camera)
+                                    (mapv #(nth stars %)))]
+          (canvas/fill-style ctx "white")
+          (doseq [{[x y] :position size :size} stars-for-camera]
+            (canvas/centered-circle ctx x y size)
+            (canvas/fill ctx)))
 
-        (doseq [e (get-entities-seen-by-camera drawable-entities camera)]
-          (draw c e world)))
-      (let [[c-left c-top] (:screen-position camera)
-            [c-width c-height] (:dimensions camera)]
-        (.drawImage on-screen-ctx off-screen-el
-                    0 0 c-width c-height
-                    c-left c-top c-width c-height)
-        (canvas/stroke-style on-screen-ctx "white")
-        (canvas/line-width on-screen-ctx 4)
-        (canvas/stroke-rect on-screen-ctx c-left c-top c-width c-height)))
+        (let [entities-for-camera (->> (spatial-hashing/nearby-entity-indexes entity-spatial-hash camera)
+                                       (mapv #(nth entities %)))]
+          (doseq [e entities-for-camera]
+            (draw ctx e world))))
+
+      (let [[c-width c-height] (:dimensions camera)]
+        (canvas/fast-state {:context on-screen-ctx
+                            :translate (:screen-position camera)}
+          (.drawImage on-screen-ctx off-screen-el
+                      0 0 c-width c-height
+                      0 0 c-width c-height)
+          (canvas/stroke-style on-screen-ctx "white")
+          (canvas/line-width on-screen-ctx 4)
+          (canvas/stroke-rect on-screen-ctx 0 0 c-width c-height))))
+    (canvas/fast-state {:context on-screen-ctx
+                        :translate [(- (/ screen-width 2) (/ minimap-size 2)) 0]}
+      (draw-mini-map on-screen-ctx drawable-entities world))
     (canvas/fill-style on-screen-ctx "white")
     (canvas/fill-text on-screen-ctx (str (.round js/Math (:fps world)) " fps") [20 20])))

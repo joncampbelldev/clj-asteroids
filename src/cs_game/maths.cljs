@@ -1,32 +1,22 @@
-(ns cs-game.maths)
+(ns cs-game.maths
+  (:require-macros [cs-game.maths :refer [def-vector-op]]))
 
 (def pi 3.14159265359)
 (def radians-per-degree (/ pi 180))
-(def degrees-per-radian (/ pi 180))
 
 (defn degrees-to-radians [degrees]
   (* degrees radians-per-degree))
 
-(defn radians-to-degrees [radians]
-  (* radians degrees-per-radian))
+(def-vector-op v+ +)
+(def-vector-op v- -)
+(def-vector-op vdiv /)
+(def-vector-op v* *)
 
-(defn vec+
-  ([[v1x v1y] [v2x v2y]]
-   [(+ v1x v2x) (+ v1y v2y)])
-  ([[v1x v1y] [v2x v2y] [v3x v3y]]
-   [(+ v1x v2x v3x) (+ v1y v2y v3y)]))
+(defn vneg [& vs]
+  (apply v* [-1 -1] vs))
 
-(defn vec- [[v1x v1y] [v2x v2y]]
-  [(- v1x v2x) (- v1y v2y)])
-
-(defn vec-div [[v1x v1y] [v2x v2y]]
-  [(/ v1x v2x) (/ v1y v2y)])
-
-(defn vec-negate [[vx vy]]
-  [(- vx) (- vy)])
-
-(defn vec* [[v1x v1y] [v2x v2y]]
-  [(* v1x v2x) (* v1y v2y)])
+(defn vmag [[x y]]
+  (.sqrt js/Math (+ (* x x) (* y y))))
 
 (defn clamp [min max x]
   (cond
@@ -52,10 +42,6 @@
 (defn move-towards-asymptote [start target scale]
   (let [diff (- target start)]
     (+ start (* diff scale))))
-
-(defn move-vec-towards-asymptote [[sx sy] [tx ty] scale]
-  [(move-towards-asymptote sx tx scale)
-   (move-towards-asymptote sy ty scale)])
 
 (defn move-towards-linear [start target amount]
   (let [op (if (< start target) + -)

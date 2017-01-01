@@ -9,6 +9,9 @@
     {}
     coll))
 
+(defn strict-empty? [v]
+  (= 0 (count v)))
+
 (defn concatv [& vs]
   (into [] (apply concat vs)))
 
@@ -25,8 +28,6 @@
 (defn trace [v]
   (println v)
   v)
-
-(defn not-empty? [coll] (not (empty? coll)))
 
 (declare .-innerWidth .-innerHeight)
 (defn get-window-dimensions []

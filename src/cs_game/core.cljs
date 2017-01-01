@@ -5,24 +5,32 @@
             [cs-game.canvas :as canvas]
             [cs-game.maths :as maths]
             [cs-game.collisions :as collisions]
-            [cs-game.expanded-lang :refer [get-window-dimensions get-time not-empty?]]))
+            [cs-game.expanded-lang :refer [get-window-dimensions get-time strict-empty? concatv]]
+            [cs-game.spatial-hashing :as spatial-hashing]))
 
 (enable-console-print!)
 
-(declare .requestAnimationFrame systems)
+(declare systems)
 
 (defn delta-vector [world v]
   (let [delta (:delta world)]
-    (maths/vec* [delta delta] v)))
+    (maths/v* [delta delta] v)))
 
 (defn accelerate-forwards [entity acceleration-magnitude]
   (let [rotation (maths/degrees-to-radians (:rotation entity))
         acceleration [(* acceleration-magnitude (Math/cos rotation))
-                      (* acceleration-magnitude (Math/sin rotation))]]
-    (update entity :velocity maths/vec+ acceleration)))
+                      (* acceleration-magnitude (Math/sin rotation))]
+        new-velocity (maths/v+ (:velocity entity) acceleration)
+        new-velocity-magnitude (maths/vmag new-velocity)
+        max-velocity-magnitude 12
+        scaled-velocity (if (> new-velocity-magnitude max-velocity-magnitude)
+                          (let [scale (/ max-velocity-magnitude new-velocity-magnitude)]
+                            (maths/v* new-velocity [scale scale]))
+                          new-velocity)]
+    (assoc entity :velocity scaled-velocity)))
 
 (defn keyboard-move [entity world]
-  (let [rotate-speed 10
+  (let [rotate-speed 5
         accel 0.5
         key-bindings (:key-bindings entity)]
     (as-> entity e
@@ -39,6 +47,7 @@
      :velocity velocity
      :rotation (:rotation entity)
      :size 20
+     :color "red"
      :view :laser
      :collision :laser
      :remove-off-screen true}))
@@ -64,7 +73,7 @@
       :else entity)))
 
 (defn moving [entity world]
-  (update entity :position maths/vec+ (delta-vector world (:velocity entity))))
+  (update entity :position maths/v+ (delta-vector world (:velocity entity))))
 
 (defn rotating [entity world]
   (update entity :rotation + (* (:delta world) (:rotate-speed entity))))
@@ -110,7 +119,7 @@
                                (assoc-in [:position 1] bottom)) e))))
 
 (defmethod collisions/detect-between [:player :asteroid] [player asteroid world]
-  (let [[dx dy] (maths/vec- (:position player) (:position asteroid))
+  (let [[dx dy] (maths/v- (:position player) (:position asteroid))
         dist-sq (+ (* dx dx) (* dy dy))
         min-dist (+ (/ (:size player) 2) (/ (:size asteroid) 2))
         min-dist-sq (* min-dist min-dist)
@@ -121,7 +130,7 @@
     [player updated-asteroid world]))
 
 (defmethod collisions/detect-between [:laser :asteroid] [laser asteroid world]
-  (let [[dx dy] (maths/vec- (:position laser) (:position asteroid))
+  (let [[dx dy] (maths/v- (:position laser) (:position asteroid))
         dist-sq (+ (* dx dx) (* dy dy))
         min-dist (+ (/ (:size laser) 2) (/ (:size asteroid) 2))
         min-dist-sq (* min-dist min-dist)
@@ -165,27 +174,31 @@
    {:filter-fn :tracked-by-camera-index
     :system-fn track-with-camera}])
 
-(def initial-canvas-dimensions (get-window-dimensions))
-(def initial-canvas-width (nth initial-canvas-dimensions 0))
-(def initial-canvas-height (nth initial-canvas-dimensions 1))
-(def initial-world-size 4000)
-(def initial-world-dimensions [initial-world-size initial-world-size])
+(def initial-screen-dimensions (get-window-dimensions))
+(def initial-screen-width (nth initial-screen-dimensions 0))
+(def initial-screen-height (nth initial-screen-dimensions 1))
+(def initial-world-width 5000)
+(def initial-world-height 5000)
+(def initial-world-dimensions [initial-world-width initial-world-height])
 
-(def star-positions (mapv (fn [_] (vector (rand initial-world-size) (rand initial-world-size)))
-                          (range 100)))
+(def stars (mapv (fn [index] {:id index
+                              :position [(rand initial-world-width) (rand initial-world-height)]
+                              :size (maths/rand-between 1 3)})
+                 (range 300)))
 
 (def initial-player1-camera
-  {:position [(* initial-world-size 0.34) (* initial-world-size 0.5)]
+  {:position [(* initial-world-width 0.34) (* initial-world-height 0.5)]
    :screen-position [0 0]
-   :dimensions [(/ initial-canvas-width 2) initial-canvas-height]})
+   :dimensions [(/ initial-screen-width 2) initial-screen-height]})
 
 (def initial-player1
-  {:position [(* initial-world-size 0.34) (* initial-world-size 0.5)]
+  {:position [(* initial-world-width 0.34) (* initial-world-height 0.5)]
    :velocity [0 0]
    :rotation 0
-   :size 30
+   :size 50
    :health 100
    :view :player
+   :color "blue"
    :bounce-off-edge true
    :tracked-by-camera-index 0
    :collision :player
@@ -196,17 +209,18 @@
                   :shoot 32}})
 
 (def initial-player2-camera
-  {:position [(* initial-world-size 0.67) (* initial-world-size 0.5)]
-   :screen-position [(/ initial-canvas-width 2) 0]
-   :dimensions [(/ initial-canvas-width 2) initial-canvas-height]})
+  {:position [(* initial-world-width 0.67) (* initial-world-height 0.5)]
+   :screen-position [(/ initial-screen-width 2) 0]
+   :dimensions [(/ initial-screen-width 2) initial-screen-height]})
 
 (def initial-player2
-  {:position [(* initial-world-size 0.67) (* initial-world-size 0.5)]
+  {:position [(* initial-world-width 0.67) (* initial-world-height 0.5)]
    :velocity [0 0]
    :rotation 180
-   :size 30
+   :size 50
    :health 100
    :view :player
+   :color "green"
    :tracked-by-camera-index 1
    :bounce-off-edge true
    :collision :player
@@ -217,94 +231,100 @@
                   :shoot 13}})
 
 (defn create-random-asteroid []
-  {:position [(rand initial-world-size) (rand initial-world-size)]
-   :velocity [(maths/rand-between -2 2) (maths/rand-between -2 2)]
-   :size (maths/rand-between 50 200)
+  {:position [(rand initial-world-width) (rand initial-world-height)]
+   :velocity [(maths/rand-between -1.5 1.5) (maths/rand-between -1.5 1.5)]
+   :size (maths/rand-between 50 250)
    :rotation (rand-int 360)
-   :rotate-speed (maths/rand-between -5 5)
+   :rotate-speed (maths/rand-between -1.5 1.5)
    :health 100
+   :color "saddlebrown"
    :view :asteroid
    :collision :asteroid
    :wrap true})
 
 (defn create-world []
-  (let [asteroids (mapv create-random-asteroid (range 100))
-        entities (conj asteroids initial-player1 initial-player2)]
+  (let [asteroids (mapv create-random-asteroid (range 80))
+        entities (-> []
+                     (conj initial-player1 initial-player2)
+                     (concatv asteroids))]
     (as-> ces/blank-world _
           (merge _ {:collision-groups #{[:player :asteroid] [:laser :asteroid]}
+                    :spatial-hash-config (spatial-hashing/generate-config initial-world-width initial-world-height 3 200)
                     :dimensions initial-world-dimensions
+                    :screen-dimensions initial-screen-dimensions
                     :cameras [initial-player1-camera initial-player2-camera]
-                    :star-positions star-positions})
+                    :stars stars})
           (ces/add-entities-to-world entities _ systems))))
 
 (defonce g-world-atom (atom (create-world)))
 
 (def off-screen-canvas-el (.getElementById js/document "off-screen-canvas"))
-(canvas/set-size off-screen-canvas-el initial-canvas-width initial-canvas-height)
+(canvas/set-size off-screen-canvas-el initial-screen-width initial-screen-height)
 (def off-screen-ctx (canvas/context off-screen-canvas-el))
 
 (def on-screen-canvas-el (.getElementById js/document "on-screen-canvas"))
-(canvas/set-size on-screen-canvas-el initial-canvas-width initial-canvas-height)
+(canvas/set-size on-screen-canvas-el initial-screen-width initial-screen-height)
 (def on-screen-ctx (canvas/context on-screen-canvas-el))
 
-(def ideal-update-fps 30)
-(def ideal-update-frame-time (/ 1000 ideal-update-fps))
-
-(def save-point-atom (atom nil))
-
-(def bindings {:save 84
-               :restore 89
-               :bullet-time 82
+(def bindings {:bullet-time 82
                :reverse-time 71})
 
-(def past-atom (atom []))
+(defn playback-past [game]
+  (let [past (:past game)
+        ideal-frame-time (:ideal-frame-time game)
+        [updated-world updated-past] (if (not (strict-empty? past))
+                                       [(peek past) (pop past)]
+                                       [(:world game) past])
+        updated-world (assoc updated-world :last-frame-start-time (get-time)
+                                           :suggested-wait-time (* (:delta updated-world) ideal-frame-time))]
+    (assoc game :world updated-world
+                :past updated-past)))
 
-(defn update-loop [world-atom]
-  (if (keyboard/held? (:reverse-time bindings))
-    (do
-      (let [past @past-atom]
-        (when (not-empty? past)
-          (reset! world-atom (peek past))
-          (swap! past-atom pop)))
-      (swap! world-atom assoc :last-frame-start-time (get-time))
-      (view/render off-screen-canvas-el off-screen-ctx on-screen-ctx @world-atom)
-      (js/setTimeout
-        #(update-loop world-atom)
-        (* ideal-update-frame-time (:delta @world-atom))))
+(defn snapshot-world-to-past [game]
+  (let [leeway 100
+        max-frames-of-past (+ leeway (:max-frames-of-past game))
+        snapshot-of-world (:world game)
+        current-frames-of-past (count (:past game))]
+    (as-> game g
+          (update g :past conj snapshot-of-world)
+          (if (> current-frames-of-past max-frames-of-past)
+            (update g :past #(into [] (drop leeway %)))
+            g))))
 
-    (do
-      (swap! past-atom conj @world-atom)
+(defn do-normal-game-stuff [game]
+  (let [updated-game (snapshot-world-to-past game)
 
-      (if (keyboard/just-down? (:save bindings))
-        (reset! save-point-atom @world-atom))
+        ideal-frame-time (:ideal-frame-time game)
+        world (:world updated-game)
+        last-frame-start-time (:last-frame-start-time world)
+        current-frame-start-time (get-time)
+        time-since-last-frame (- current-frame-start-time last-frame-start-time)
+        delta (/ time-since-last-frame ideal-frame-time)
 
-      (if-let [save-point @save-point-atom]
-        (if (keyboard/just-down? (:restore bindings))
-          (let [adjusted-save-point (assoc save-point :last-frame-start-time (- (get-time) ideal-update-frame-time))]
-            (reset! world-atom adjusted-save-point))))
+        target-delta-scale (if (keyboard/held? (:bullet-time bindings)) 0.1 1)
+        delta-scale (maths/move-towards-linear (:delta-scale world) target-delta-scale 0.05)
 
-      (let [world @world-atom
-            last-frame-start-time (:last-frame-start-time world)
-            current-frame-start-time (get-time)
-            time-since-last-frame (- current-frame-start-time last-frame-start-time)
-            delta (/ time-since-last-frame ideal-update-frame-time)
+        updated-world (-> world
+                          (assoc :delta (* delta delta-scale) :delta-scale delta-scale)
+                          (ces/run-systems systems)
+                          (assoc :last-frame-start-time current-frame-start-time
+                                 :fps (/ 1000 time-since-last-frame)))]
+    (keyboard/tick)
+    (assoc updated-game :world updated-world)))
 
-            target-delta-scale (if (keyboard/held? (:bullet-time bindings)) 0.1 1)
-            delta-scale (maths/move-towards-linear (:delta-scale world) target-delta-scale 0.05)]
-        (swap! world-atom
-               assoc
-               :delta (* delta delta-scale)
-               :delta-scale delta-scale)
-        (swap! world-atom ces/run-systems systems)
-        (keyboard/tick)
-        (swap! world-atom
-               assoc
-               :last-frame-start-time current-frame-start-time
-               :fps (/ 1000 time-since-last-frame))
-        (view/render off-screen-canvas-el off-screen-ctx on-screen-ctx world)
-        (let [frame-duration (- (get-time) current-frame-start-time)
-              time-to-wait (max 0 (- ideal-update-frame-time frame-duration))]
-          (js/setTimeout #(update-loop world-atom) time-to-wait))))))
+(defn update-loop [game]
+  (let [updated-game (if (keyboard/held? (:reverse-time bindings))
+                       (playback-past game)
+                       (do-normal-game-stuff game))
+        world (:world updated-game)]
+    (view/render off-screen-canvas-el off-screen-ctx on-screen-ctx world)
+
+    (let [ideal-frame-time (:ideal-frame-time game)
+          frame-duration (- (get-time) (:last-frame-start-time world))
+          time-to-wait (max 0 (- ideal-frame-time frame-duration))
+          suggested-wait-time (:suggested-wait-time world)
+          updated-game (assoc-in updated-game [:world :suggested-wait-time] nil)]
+      (js/setTimeout #(update-loop updated-game) (or suggested-wait-time time-to-wait)))))
 
 #_(defn on-resize []
     (let [window-dimensions (get-window-dimensions)
@@ -319,14 +339,17 @@
 (defn start []
   ;(.addEventListener js/window "resize" on-resize)
   (keyboard/add-listeners)
-  (swap! g-world-atom
-         assoc
-         :last-frame-start-time (get-time)
-         :delta-scale 1)
-  (update-loop g-world-atom))
-
-(defn on-js-reload []
-  (swap! g-world-atom update-in [:__figwheel_counter] inc))
+  (let [world (-> (create-world)
+                  (assoc :last-frame-start-time (get-time)
+                         :delta-scale 1))
+        ideal-fps 30
+        game {:ideal-fps ideal-fps
+              :ideal-frame-time (/ 1000 ideal-fps)
+              :max-frames-of-past (* 60 ideal-fps)
+              :past []
+              :world world
+              :state :in-game}]
+    (update-loop game)))
 
 (defonce _ (start))
 (comment _ on-js-reload)
