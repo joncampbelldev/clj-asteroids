@@ -37,7 +37,14 @@
                       :translate (:position asteroid)
                       :rotation (maths/degrees-to-radians (:rotation asteroid))}
     (canvas/fill-style ctx (:color asteroid))
-    (let [size (:size asteroid)]
+    (let [points (:points asteroid)
+          [[fx fy] rest-of-points] [(peek points) (pop points)]]
+      (canvas/begin-path ctx)
+      (canvas/move-to ctx fx fy)
+      (doseq [[x y] rest-of-points]
+        (canvas/line-to ctx x y))
+      (canvas/fill ctx))
+    #_(let [size (:size asteroid)]
       (canvas/fill-centered-rect ctx 0 0 size size))))
 
 (def view->minimap-size {:player 5
@@ -82,7 +89,7 @@
         entity-spatial-hash (spatial-hashing/build drawable-entities spatial-hash-config)
 
         stars (:stars world)
-        star-spatial-hash (spatial-hashing/build stars spatial-hash-config)
+        star-spatial-hash (:star-spatial-hash world)
 
         [world-width world-height] (:dimensions world)
         [screen-width] (:screen-dimensions world)

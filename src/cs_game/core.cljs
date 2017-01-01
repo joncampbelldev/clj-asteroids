@@ -18,8 +18,8 @@
 
 (defn accelerate-forwards [entity acceleration-magnitude]
   (let [rotation (maths/degrees-to-radians (:rotation entity))
-        acceleration [(* acceleration-magnitude (Math/cos rotation))
-                      (* acceleration-magnitude (Math/sin rotation))]
+        acceleration [(* acceleration-magnitude (maths/cos rotation))
+                      (* acceleration-magnitude (maths/sin rotation))]
         new-velocity (maths/v+ (:velocity entity) acceleration)
         new-velocity-magnitude (maths/vmag new-velocity)
         max-velocity-magnitude 12
@@ -42,7 +42,7 @@
   (let [rotation (maths/degrees-to-radians (:rotation entity))
         laser-speed 30
         [evx evy] (:velocity entity)
-        velocity [(+ (* laser-speed (Math/cos rotation)) evx) (+ (* laser-speed (Math/sin rotation)) evy)]]
+        velocity [(+ (* laser-speed (maths/cos rotation)) evx) (+ (* laser-speed (maths/sin rotation)) evy)]]
     {:position (:position entity)
      :velocity velocity
      :rotation (:rotation entity)
@@ -118,6 +118,8 @@
                                (update-in [:velocity 1] bounce)
                                (assoc-in [:position 1] bottom)) e))))
 
+; TODO integrate sat-js, use it to get accurate collisions with asteroids
+
 (defmethod collisions/detect-between [:player :asteroid] [player asteroid world]
   (let [[dx dy] (maths/v- (:position player) (:position asteroid))
         dist-sq (+ (* dx dx) (* dy dy))
@@ -177,14 +179,14 @@
 (def initial-screen-dimensions (get-window-dimensions))
 (def initial-screen-width (nth initial-screen-dimensions 0))
 (def initial-screen-height (nth initial-screen-dimensions 1))
-(def initial-world-width 5000)
-(def initial-world-height 5000)
+(def initial-world-width 10000)
+(def initial-world-height 10000)
 (def initial-world-dimensions [initial-world-width initial-world-height])
 
 (def stars (mapv (fn [index] {:id index
                               :position [(rand initial-world-width) (rand initial-world-height)]
                               :size (maths/rand-between 1 3)})
-                 (range 300)))
+                 (range 2000)))
 
 (def initial-player1-camera
   {:position [(* initial-world-width 0.34) (* initial-world-height 0.5)]
@@ -196,9 +198,8 @@
    :velocity [0 0]
    :rotation 0
    :size 50
-   :health 100
    :view :player
-   :color "blue"
+   :color "white"
    :bounce-off-edge true
    :tracked-by-camera-index 0
    :collision :player
@@ -218,7 +219,6 @@
    :velocity [0 0]
    :rotation 180
    :size 50
-   :health 100
    :view :player
    :color "green"
    :tracked-by-camera-index 1
@@ -230,30 +230,49 @@
                   :down 40
                   :shoot 13}})
 
+(defn generate-convex-polygon [radius]
+  (let [sides (+ 6 (rand 10))
+        full-circle (* maths/pi 2)
+        step (/ full-circle sides)]
+    (->> (range sides)
+         (map (fn [i]
+                (let [perfect-angle (* i step)]
+                  (-> (+ perfect-angle (maths/rand-between (- step) step))
+                      (min full-circle)
+                      (max 0)))))
+         (sort)
+         (map (fn [angle]
+                [(* radius (maths/cos angle))
+                 (* radius (maths/sin angle))]))
+         (into []))))
+
 (defn create-random-asteroid []
-  {:position [(rand initial-world-width) (rand initial-world-height)]
-   :velocity [(maths/rand-between -1.5 1.5) (maths/rand-between -1.5 1.5)]
-   :size (maths/rand-between 50 250)
-   :rotation (rand-int 360)
-   :rotate-speed (maths/rand-between -1.5 1.5)
-   :health 100
-   :color "saddlebrown"
-   :view :asteroid
-   :collision :asteroid
-   :wrap true})
+  (let [size (maths/rand-between 100 400)]
+    {:position [(rand initial-world-width) (rand initial-world-height)]
+     :velocity [(maths/rand-between -1.5 1.5) (maths/rand-between -1.5 1.5)]
+     :size size
+     :rotation (rand-int 360)
+     :rotate-speed (maths/rand-between -1.5 1.5)
+     :points (generate-convex-polygon (/ size 2))
+     :color "saddlebrown"
+     :view :asteroid
+     :collision :asteroid
+     :wrap true}))
 
 (defn create-world []
-  (let [asteroids (mapv create-random-asteroid (range 80))
+  (let [asteroids (mapv create-random-asteroid (range 100))
         entities (-> []
                      (conj initial-player1 initial-player2)
-                     (concatv asteroids))]
+                     (concatv asteroids))
+        spatial-hash-config (spatial-hashing/generate-config initial-world-width initial-world-height 3 200)]
     (as-> ces/blank-world _
           (merge _ {:collision-groups #{[:player :asteroid] [:laser :asteroid]}
-                    :spatial-hash-config (spatial-hashing/generate-config initial-world-width initial-world-height 3 200)
+                    :spatial-hash-config spatial-hash-config
                     :dimensions initial-world-dimensions
                     :screen-dimensions initial-screen-dimensions
                     :cameras [initial-player1-camera initial-player2-camera]
-                    :stars stars})
+                    :stars stars
+                    :star-spatial-hash (spatial-hashing/build stars spatial-hash-config)})
           (ces/add-entities-to-world entities _ systems))))
 
 (defonce g-world-atom (atom (create-world)))

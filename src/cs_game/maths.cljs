@@ -7,6 +7,10 @@
 (defn degrees-to-radians [degrees]
   (* degrees radians-per-degree))
 
+(defn cos [x] (.cos js/Math x))
+(defn sin [x] (.sin js/Math x))
+(defn tan [x] (.tan js/Math x))
+
 (def-vector-op v+ +)
 (def-vector-op v- -)
 (def-vector-op vdiv /)
