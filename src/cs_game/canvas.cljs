@@ -27,6 +27,13 @@
 (defn line-to [ctx x y] (.lineTo ctx x y))
 (defn arc-to [ctx sx sy ex ey radius] (.arcTo ctx sx sy ex ey radius))
 
+(defn draw-points [ctx points]
+  (let [[[fx fy] rest-of-points] [(first points) (rest points)]]
+    (begin-path ctx)
+    (move-to ctx fx fy)
+    (doseq [[x y] rest-of-points]
+      (line-to ctx x y))))
+
 (defn arc [ctx x y radius start-angle end-angle counter-clockwise?]
   (.arc ctx x y radius start-angle end-angle counter-clockwise?))
 

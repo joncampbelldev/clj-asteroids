@@ -24,6 +24,7 @@
                {:id           "min"
                 :source-paths ["src"]
                 :compiler     {:output-to     "resources/public/js/compiled/cs_game.js"
+                               ; TODO add externs file for sat.js
                                :main          cs-game.core
                                :optimizations :advanced
                                :pretty-print  false}}]}

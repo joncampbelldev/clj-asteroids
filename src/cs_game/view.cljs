@@ -12,40 +12,24 @@
                       :translate (:position laser)
                       :rotation (maths/degrees-to-radians (:rotation laser))}
     (canvas/fill-style ctx (:color laser))
-    (let [size (:size laser)]
-      (canvas/fill-centered-rect ctx 0 0 size (/ size 4)))))
+    (canvas/draw-points ctx (:points laser))
+    (canvas/fill ctx)))
 
 (defmethod draw :player [ctx player _]
   (canvas/fast-state {:context ctx
                       :translate (:position player)
                       :rotation (maths/degrees-to-radians (:rotation player))}
     (canvas/fill-style ctx (:color player))
-    (let [size (:size player)]
-      (canvas/begin-path ctx)
-      (canvas/move-to ctx (* size 0.4) 0)
-      (canvas/line-to ctx (- (* size 0.3)) (* size 0.2))
-      (canvas/line-to ctx (- (* size 0.3)) (- (* size 0.2)))
-      (canvas/fill ctx)
-
-      (canvas/stroke-style ctx "lightblue")
-      (canvas/line-width ctx 1)
-      (canvas/centered-circle ctx 0 0 (/ size 2))
-      (canvas/stroke ctx))))
+    (canvas/draw-points ctx (:points player))
+    (canvas/fill ctx)))
 
 (defmethod draw :asteroid [ctx asteroid _]
   (canvas/fast-state {:context ctx
                       :translate (:position asteroid)
                       :rotation (maths/degrees-to-radians (:rotation asteroid))}
     (canvas/fill-style ctx (:color asteroid))
-    (let [points (:points asteroid)
-          [[fx fy] rest-of-points] [(peek points) (pop points)]]
-      (canvas/begin-path ctx)
-      (canvas/move-to ctx fx fy)
-      (doseq [[x y] rest-of-points]
-        (canvas/line-to ctx x y))
-      (canvas/fill ctx))
-    #_(let [size (:size asteroid)]
-      (canvas/fill-centered-rect ctx 0 0 size size))))
+    (canvas/draw-points ctx (:points asteroid))
+    (canvas/fill ctx)))
 
 (def view->minimap-size {:player 5
                          :laser 2
@@ -85,6 +69,8 @@
   (let [spatial-hash-config (:spatial-hash-config world)
 
         entities (:entities world)
+
+        ; TODO find an easy way to index entities by properties not involved in a system to get all drawable entities
         drawable-entities (filterv :view entities)
         entity-spatial-hash (spatial-hashing/build drawable-entities spatial-hash-config)
 

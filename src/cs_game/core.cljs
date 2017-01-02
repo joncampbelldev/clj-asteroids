@@ -6,7 +6,8 @@
             [cs-game.maths :as maths]
             [cs-game.collisions :as collisions]
             [cs-game.expanded-lang :refer [get-window-dimensions get-time strict-empty? concatv]]
-            [cs-game.spatial-hashing :as spatial-hashing]))
+            [cs-game.spatial-hashing :as spatial-hashing]
+            [cs-game.sat :as sat]))
 
 (enable-console-print!)
 
@@ -38,6 +39,14 @@
           (if (keyboard/held? (:left key-bindings)) (update e :rotation - (* (:delta world) rotate-speed)) e)
           (if (keyboard/held? (:right key-bindings)) (update e :rotation + (* (:delta world) rotate-speed)) e))))
 
+(defn create-points-for-rectangle [x y width height]
+  (let [half-width (/ width 2)
+        half-height (/ height 2)]
+    [[(- x half-width) (- y half-height)]
+     [(+ x half-width) (- y half-height)]
+     [(+ x half-width) (+ y half-height)]
+     [(- x half-width) (+ y half-height)]]))
+
 (defn create-laser-at-entity [entity]
   (let [rotation (maths/degrees-to-radians (:rotation entity))
         laser-speed 30
@@ -47,6 +56,7 @@
      :velocity velocity
      :rotation (:rotation entity)
      :size 20
+     :points (create-points-for-rectangle 0 0 20 5)
      :color "red"
      :view :laser
      :collision :laser
@@ -85,13 +95,9 @@
         left (- 0 size)
         right (+ world-width size)
         top (- 0 size)
-        bottom (+ world-height size)]
-    (cond
-      (< x left) (assoc entity :remove true)
-      (> x right) (assoc entity :remove true)
-      (< y top) (assoc entity :remove true)
-      (> y bottom) (assoc entity :remove true)
-      :else entity)))
+        bottom (+ world-height size)
+        off-screen? (or (< x left) (> x right) (< y top) (> y bottom))]
+    [entity (ces/remove-after-render-if off-screen? [(:id entity)] world)]))
 
 (defn bounce [n] (* -0.5 n))
 
@@ -118,29 +124,30 @@
                                (update-in [:velocity 1] bounce)
                                (assoc-in [:position 1] bottom)) e))))
 
-; TODO integrate sat-js, use it to get accurate collisions with asteroids
+(defn narrow-phase-detect [entity1 entity2]
+  (let [polygon1 (sat/to-polygon (:position entity1)
+                                 (:points entity1)
+                                 (maths/degrees-to-radians (:rotation entity1)))
+        polygon2 (sat/to-polygon (:position entity2)
+                                 (:points entity2)
+                                 (maths/degrees-to-radians (:rotation entity2)))]
+    (sat/test-polygon-polygon polygon1 polygon2)))
 
 (defmethod collisions/detect-between [:player :asteroid] [player asteroid world]
   (let [[dx dy] (maths/v- (:position player) (:position asteroid))
         dist-sq (+ (* dx dx) (* dy dy))
         min-dist (+ (/ (:size player) 2) (/ (:size asteroid) 2))
         min-dist-sq (* min-dist min-dist)
-        colliding? (< dist-sq min-dist-sq)
-        updated-asteroid (if colliding?
-                           (assoc asteroid :remove true)
-                           asteroid)]
-    [player updated-asteroid world]))
+        colliding? (and (< dist-sq min-dist-sq) (narrow-phase-detect player asteroid))]
+    [player asteroid (ces/remove-after-render-if colliding? [(:id asteroid)] world)]))
 
 (defmethod collisions/detect-between [:laser :asteroid] [laser asteroid world]
   (let [[dx dy] (maths/v- (:position laser) (:position asteroid))
         dist-sq (+ (* dx dx) (* dy dy))
         min-dist (+ (/ (:size laser) 2) (/ (:size asteroid) 2))
         min-dist-sq (* min-dist min-dist)
-        colliding? (< dist-sq min-dist-sq)
-        [updated-laser updated-asteroid] (if colliding?
-                                           [(assoc laser :remove true) (assoc asteroid :remove true)]
-                                           [laser asteroid])]
-    [updated-laser updated-asteroid world]))
+        colliding? (and (< dist-sq min-dist-sq) (narrow-phase-detect laser asteroid))]
+    [laser asteroid (ces/remove-after-render-if colliding? [(:id asteroid) (:id laser)] world)]))
 
 (defn track-with-camera [entity world]
   (let [camera-index (:tracked-by-camera-index entity)
@@ -186,7 +193,12 @@
 (def stars (mapv (fn [index] {:id index
                               :position [(rand initial-world-width) (rand initial-world-height)]
                               :size (maths/rand-between 1 3)})
-                 (range 2000)))
+                 (range 1000)))
+
+(defn create-isoceles-triangle [circle-size]
+  [[(* circle-size 0.4) 0]
+   [(- (* circle-size 0.3)) (* circle-size 0.2)]
+   [(- (* circle-size 0.3)) (- (* circle-size 0.2))]])
 
 (def initial-player1-camera
   {:position [(* initial-world-width 0.34) (* initial-world-height 0.5)]
@@ -198,6 +210,7 @@
    :velocity [0 0]
    :rotation 0
    :size 50
+   :points (create-isoceles-triangle 50)
    :view :player
    :color "white"
    :bounce-off-edge true
@@ -219,6 +232,7 @@
    :velocity [0 0]
    :rotation 180
    :size 50
+   :points (create-isoceles-triangle 50)
    :view :player
    :color "green"
    :tracked-by-camera-index 1
@@ -230,37 +244,34 @@
                   :down 40
                   :shoot 13}})
 
-(defn generate-convex-polygon [radius]
-  (let [sides (+ 6 (rand 10))
-        full-circle (* maths/pi 2)
-        step (/ full-circle sides)]
-    (->> (range sides)
-         (map (fn [i]
-                (let [perfect-angle (* i step)]
-                  (-> (+ perfect-angle (maths/rand-between (- step) step))
-                      (min full-circle)
-                      (max 0)))))
-         (sort)
-         (map (fn [angle]
-                [(* radius (maths/cos angle))
-                 (* radius (maths/sin angle))]))
-         (into []))))
+(defn create-convex-polygon [radius]
+  (let [full-circle (* maths/pi 2)]
+    (loop [path []
+           angle 0]
+      (let [angle (+ angle (maths/rand-between 0.05 1.5))
+            position [(* radius (maths/cos angle))
+                      (* radius (maths/sin angle))]]
+        (if (< angle full-circle)
+          (recur (conj path position) angle)
+          path)))))
 
 (defn create-random-asteroid []
-  (let [size (maths/rand-between 100 400)]
-    {:position [(rand initial-world-width) (rand initial-world-height)]
+  (let [size (maths/rand-between 100 400)
+        points (create-convex-polygon (/ size 2))
+        position [(rand initial-world-width) (rand initial-world-height)]]
+    {:position position
      :velocity [(maths/rand-between -1.5 1.5) (maths/rand-between -1.5 1.5)]
      :size size
      :rotation (rand-int 360)
      :rotate-speed (maths/rand-between -1.5 1.5)
-     :points (generate-convex-polygon (/ size 2))
+     :points points
      :color "saddlebrown"
      :view :asteroid
      :collision :asteroid
      :wrap true}))
 
 (defn create-world []
-  (let [asteroids (mapv create-random-asteroid (range 100))
+  (let [asteroids (mapv create-random-asteroid (range 150))
         entities (-> []
                      (conj initial-player1 initial-player2)
                      (concatv asteroids))
@@ -328,7 +339,6 @@
                           (ces/run-systems systems)
                           (assoc :last-frame-start-time current-frame-start-time
                                  :fps (/ 1000 time-since-last-frame)))]
-    (keyboard/tick)
     (assoc updated-game :world updated-world)))
 
 (defn update-loop [game]
@@ -337,6 +347,7 @@
                        (do-normal-game-stuff game))
         world (:world updated-game)]
     (view/render off-screen-canvas-el off-screen-ctx on-screen-ctx world)
+    (keyboard/tick)
 
     (let [ideal-frame-time (:ideal-frame-time game)
           frame-duration (- (get-time) (:last-frame-start-time world))

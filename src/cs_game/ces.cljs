@@ -1,17 +1,17 @@
 (ns cs-game.ces
   (:require [cs-game.expanded-lang :refer [map-values strict-empty?]]))
 
-(defn key-for-system [{:keys [filter-fn label]}]
+(defn- key-for-system [{:keys [filter-fn label]}]
   (if (keyword? filter-fn)
     (or label filter-fn)
     (or label (throw (js/Error "system must have a keyword as filter-fn or define a custom label")))))
 
-(defn safe-conj-to-set [set value]
+(defn- safe-conj-to-set [set value]
   (if (nil? set)
     #{value}
     (conj set value)))
 
-(defn system-keys-for-entity [entity systems]
+(defn- system-keys-for-entity [entity systems]
   (reduce
     (fn [system-keys {:keys [filter-fn] :as system}]
       (if (filter-fn entity)
@@ -42,7 +42,17 @@
     world
     entities))
 
-(defn remove-entity [entity-index world]
+(defn remove-before-render-if [flag? entity-indexes world]
+  (if flag?
+    (update world :remove-before-render #(apply conj % entity-indexes))
+    world))
+
+(defn remove-after-render-if [flag? entity-indexes world]
+  (if flag?
+    (update world :remove-after-render #(apply conj % entity-indexes))
+    world))
+
+(defn- remove-entity [entity-index world]
   (as-> world w
         (update w :entities assoc entity-index nil)
         (update
@@ -51,20 +61,20 @@
           (fn [eids-by-s] (map-values #(disj % entity-index) eids-by-s)))
         (update w :reusable-indexes conj entity-index)))
 
-(defn remove-entities [entity-indexes initial-world]
+(defn- remove-entities [entity-indexes initial-world]
   (reduce
     (fn [world entity-index]
       (remove-entity entity-index world))
     initial-world
     entity-indexes))
 
-(defn normalise-system-fn-call [system-fn entity world]
+(defn- normalise-system-fn-call [system-fn entity world]
   (let [result (system-fn entity world)]
     (cond
       (vector? result) result
       (map? result) [result world])))
 
-(defn run-single-entity-system [system-fn entity-indexes initial-world]
+(defn- run-single-entity-system [system-fn entity-indexes initial-world]
   (reduce
     (fn [world entity-index]
       (let [entities (:entities world)
@@ -74,7 +84,7 @@
     initial-world
     entity-indexes))
 
-(defn run-system [world {:keys [system-fn multiple-entity-system?] :as system}]
+(defn- run-system [world {:keys [system-fn multiple-entity-system?] :as system}]
   (let [system-key (key-for-system system)
         entity-indexes-for-system (-> world :entity-indexes-by-system system-key)]
     (if (strict-empty? entity-indexes-for-system)
@@ -85,12 +95,15 @@
 
 (defn run-systems [world systems]
   (as-> world w
+        (remove-entities (:remove-after-render w) w)
+        (assoc w :remove-after-render #{})
         (reduce run-system w systems)
-        (remove-entities
-          (->> w :entities (filterv :remove) (map :id))
-          w)))
+        (remove-entities (:remove-before-render w) w)
+        (assoc w :remove-before-render #{})))
 
 (def blank-world
   {:entities []
    :reusable-indexes []
-   :entity-indexes-by-system {}})
+   :entity-indexes-by-system {}
+   :remove-before-render #{}
+   :remove-after-render #{}})
