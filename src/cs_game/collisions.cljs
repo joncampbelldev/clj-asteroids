@@ -4,8 +4,8 @@
 
 (defmulti detect-between
   (fn [left-entity right-entity _]
-    [(:collision left-entity)
-     (:collision right-entity)]))
+    [(:type left-entity)
+     (:type right-entity)]))
 
 (defn detect-between-indexes [world left-entity-index right-entity-index]
   (let [entities (:entities world)
@@ -29,11 +29,10 @@
         right-entity-indexes (get label->entity-indexes left-label)
         right-spatial-hash (get label->spatial-hash right-label)
 
-        swap? (< (count left-entity-indexes) (count right-entity-indexes))
-        temp-left left-entity-indexes
-        left-entity-indexes (if swap? right-entity-indexes left-entity-indexes)
-        right-entity-indexes (if swap? temp-left right-entity-indexes)
-
+        swap? (> (count left-entity-indexes) (count right-entity-indexes))
+        [left-entity-indexes right-entity-indexes] (if swap?
+                                                     [right-entity-indexes left-entity-indexes]
+                                                     [left-entity-indexes right-entity-indexes])
         initial-entities (:entities initial-world)]
     (if (or (strict-empty? left-entity-indexes) (strict-empty? right-entity-indexes))
       initial-world
@@ -61,13 +60,13 @@
               left-entity-indexes)]
         updated-world))))
 
-(def group-ids-by-collision (partial group-by-transform :collision :id []))
+(def group-ids-by-type (partial group-by-transform :type :id []))
 
 ; small optimisation available: cache entity-index-by-label on add/remove by wrapping add/remove ces functions
 (defn system [collidable-entity-indexes world]
   (let [all-entities (:entities world)
         collidable-entities (mapv #(nth all-entities %) collidable-entity-indexes)
-        label->entity-indexes (group-ids-by-collision collidable-entities)
+        label->entity-indexes (group-ids-by-type collidable-entities)
         label->spatial-hash (reduce-kv
                               (fn [label->sh label entity-indexes-for-label]
                                 (let [entities-with-label (mapv #(nth all-entities %) entity-indexes-for-label)

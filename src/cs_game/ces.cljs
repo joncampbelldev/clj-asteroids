@@ -20,7 +20,7 @@
     #{}
     systems))
 
-(defn add-entity-to-world [entity initial-world systems]
+(defn- add-entity-to-world [entity initial-world systems]
   (let [reusuable-indexes (:reusable-indexes initial-world)
         [entity-index leftover-reusable-indexes] (if (strict-empty? reusuable-indexes)
                                                    [(count (:entities initial-world)) reusuable-indexes]
@@ -36,21 +36,35 @@
             w
             system-keys))))
 
-(defn add-entities-to-world [entities world systems]
+(defn- add-entities-to-world [entities world systems]
   (reduce
     (fn [world entity] (add-entity-to-world entity world systems))
     world
     entities))
 
-(defn remove-before-render-if [flag? entity-indexes world]
-  (if flag?
-    (update world :remove-before-render #(apply conj % entity-indexes))
-    world))
+(defn add-entity-before-render [entity world]
+  (update world :add-before-render #(conj % entity)))
 
-(defn remove-after-render-if [flag? entity-indexes world]
-  (if flag?
-    (update world :remove-after-render #(apply conj % entity-indexes))
-    world))
+(defn add-entities-before-render [entities world]
+  (update world :add-before-render #(apply conj % entities)))
+
+(defn add-entity-after-render [entity world]
+  (update world :add-after-render #(conj % entity)))
+
+(defn add-entities-after-render [entities world]
+  (update world :add-after-render #(apply conj % entities)))
+
+(defn remove-entity-before-render [entity-index world]
+  (update world :remove-before-render #(conj % entity-index)))
+
+(defn remove-entities-before-render [entity-indexes world]
+  (update world :remove-before-render #(apply conj % entity-indexes)))
+
+(defn remove-entity-after-render [entity-index world]
+  (update world :remove-after-render #(conj % entity-index)))
+
+(defn remove-entities-after-render [entity-indexes world]
+  (update world :remove-after-render #(apply conj % entity-indexes)))
 
 (defn- remove-entity [entity-index world]
   (as-> world w
@@ -58,7 +72,7 @@
         (update
           w
           :entity-indexes-by-system
-          (fn [eids-by-s] (map-values #(disj % entity-index) eids-by-s)))
+          (fn [system->entity-indexes] (map-values #(disj % entity-index) system->entity-indexes)))
         (update w :reusable-indexes conj entity-index)))
 
 (defn- remove-entities [entity-indexes initial-world]
@@ -97,13 +111,19 @@
   (as-> world w
         (remove-entities (:remove-after-render w) w)
         (assoc w :remove-after-render #{})
+        (add-entities-to-world (:add-after-render w) w systems)
+        (assoc w :add-after-render [])
         (reduce run-system w systems)
         (remove-entities (:remove-before-render w) w)
-        (assoc w :remove-before-render #{})))
+        (assoc w :remove-before-render #{})
+        (add-entities-to-world (:add-before-render w) w systems)
+        (assoc w :add-before-render [])))
 
 (def blank-world
   {:entities []
    :reusable-indexes []
    :entity-indexes-by-system {}
    :remove-before-render #{}
-   :remove-after-render #{}})
+   :remove-after-render #{}
+   :add-before-render []
+   :add-after-render []})

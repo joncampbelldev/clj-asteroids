@@ -54,5 +54,5 @@
   (let [{:keys [data cell-size columns offset]} spatial-hash]
     (->> (get-points-for-entity entity cell-size)
          (mapv (fn [[x y]]
-                 (get data (index-for-point x y columns offset))))
+                 (nth data (index-for-point x y columns offset))))
          (apply union))))

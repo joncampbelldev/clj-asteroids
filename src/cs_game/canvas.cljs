@@ -69,6 +69,16 @@
 (defn stroke-centered-rect [ctx x y width height]
   (stroke-rect ctx (- x (/ width 2)) (- y (/ height 2)) width height))
 
+(defn draw-image [ctx el sx sy swidth sheight dx dy dwidth dheight]
+  (.drawImage ctx el sx sy swidth sheight dx dy dwidth dheight))
+
 (declare .fillText)
-(defn fill-text [ctx text [x y]]
+
+(defn set-text-align [ctx text-align]
+  (set! (.-textAlign ctx) text-align))
+
+(defn set-font [ctx font]
+  (set! (.-font ctx) font))
+
+(defn fill-text [ctx text x y]
   (.fillText ctx text x y))

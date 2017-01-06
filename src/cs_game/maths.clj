@@ -2,6 +2,8 @@
 
 (defmacro def-vector-op [name op]
   `(defn ~name
+     ([[~'v1x ~'v1y]]
+       [(~op ~'v1x) (~op ~'v1y)])
      ([[~'v1x ~'v1y] [~'v2x ~'v2y]]
        [(~op ~'v1x ~'v2x) (~op ~'v1y ~'v2y)])
      ([[~'v1x ~'v1y] [~'v2x ~'v2y] [~'v3x ~'v3y]]
