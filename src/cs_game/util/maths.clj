@@ -1,4 +1,4 @@
-(ns cs-game.maths)
+(ns cs-game.util.maths)
 
 (defmacro def-vector-op [name op]
   `(defn ~name

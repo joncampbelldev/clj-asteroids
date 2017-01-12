@@ -1,10 +1,23 @@
 (ns cs-game.view
-  (:require [cs-game.canvas :as canvas]
-            [cs-game.maths :as maths]
+  (:require [cs-game.util.canvas :as canvas]
+            [cs-game.util.maths :as maths]
             [cs-game.spatial-hashing :as spatial-hashing]
             [cs-game.expanded-lang :refer [concatv]])
-  (:require-macros [cs-game.canvas :as canvas]
-                   [cs-game.expanded-lang :refer [doseq-indexed]]))
+  (:require-macros [cs-game.util.canvas :as canvas]))
+
+
+(def view->minimap-size {:player 5
+                         :laser 2
+                         :asteroid 3})
+(def minimap-size 200)
+
+(def camera-border-width 2)
+
+(def weapon-type->name
+  {:single-laser "1"
+   :shotgun-laser "SG"})
+
+(def types-in-z-order [:laser :player :asteroid :explosion])
 
 (defmulti draw (fn [_ entity _] (:type entity)))
 
@@ -32,10 +45,14 @@
     (canvas/draw-points ctx (:points asteroid))
     (canvas/fill ctx)))
 
-(def view->minimap-size {:player 5
-                         :laser 2
-                         :asteroid 3})
-(def minimap-size 200)
+(defmethod draw :explosion [ctx explosion _]
+  (canvas/fast-state {:context ctx
+                      :translate (:position explosion)
+                      :alpha (:alpha explosion)}
+    (canvas/fill-style ctx (:color explosion))
+    (canvas/centered-circle ctx 0 0 (/ (:size explosion) 2))
+    (canvas/fill ctx)))
+
 (defn draw-mini-map [ctx drawable-entities world]
   (let [[world-width world-height] (:dimensions world)
         xscale (/ minimap-size world-width)
@@ -66,11 +83,36 @@
     (canvas/draw-rounded-rect ctx 0 0 minimap-size minimap-size 20)
     (canvas/stroke ctx)))
 
-(def camera-border-width 2)
+(defn render-player-hud [ctx player camera]
+  (let [camera-top-left (:screen-position camera)
+        camera-height (-> camera :dimensions (nth 1))
+        weapon-box-size 50
 
-(def weapon-type->name
-  {:single-laser "1L"
-   :shotgun-laser "SGL"})
+        health-bar-padding 1
+        health-bar-border 1
+        health-bar-height 16
+        health-bar-width 80
+        current-weapon-index (:current-weapon-index player)]
+    (canvas/fast-state {:context ctx
+                        :translate camera-top-left}
+      (canvas/fill-style ctx "green")
+      (canvas/fill-rect ctx health-bar-padding health-bar-padding (* (/ health-bar-width 100) (:health player)) health-bar-height)
+      (canvas/stroke-style ctx "green")
+      (canvas/line-width ctx health-bar-border)
+      (canvas/stroke-rect ctx 0 0 (+ (* 2 health-bar-padding) health-bar-width) (+ (* 2 health-bar-padding) health-bar-height))
+
+      (doseq [[index weapon] (map-indexed vector (:weapons player))]
+        (canvas/fast-state {:context ctx
+                            :translate (maths/v+ [(* index (+ 1 weapon-box-size))
+                                                  (- camera-height weapon-box-size)])}
+          (canvas/fill-style ctx (if (= current-weapon-index index) "red" "dimgrey"))
+          (canvas/fill-rect ctx 0 0 weapon-box-size weapon-box-size)
+
+          (canvas/fill-style ctx "white")
+          (canvas/font ctx "18px Arial")
+          (canvas/text-align ctx "center")
+          (canvas/text-baseline ctx "middle")
+          (canvas/fill-text ctx (weapon-type->name (:type weapon)) (/ weapon-box-size 2) (/ weapon-box-size 2)))))))
 
 (defn render-world [off-screen-el off-screen-ctx on-screen-ctx world]
   (let [spatial-hash-config (:spatial-hash-config world)
@@ -78,6 +120,7 @@
         entities (:entities world)
 
         ; TODO find an easy way to index entities by properties not involved in a system to get all drawable entities
+        ; TODO currently assumed that all entities are drawable
         drawable-entities (filterv #(not (nil? %)) entities)
         entity-spatial-hash (spatial-hashing/build drawable-entities spatial-hash-config)
 
@@ -85,7 +128,7 @@
         star-spatial-hash (:star-spatial-hash world)
 
         [world-width world-height] (:dimensions world)
-        [screen-width] (:screen-dimensions world)
+        [screen-width screen-height] (:screen-dimensions world)
         ctx off-screen-ctx]
     (doseq [camera (:cameras world)]
       ; TODO only clear the section of canvas required for this camera render
@@ -110,8 +153,10 @@
             (canvas/fill ctx)))
 
         (let [entities-for-camera (->> (spatial-hashing/nearby-entity-indexes entity-spatial-hash camera)
-                                       (mapv #(nth entities %)))]
-          (doseq [e entities-for-camera]
+                                       (mapv #(nth entities %)))
+              type->entities (group-by :type entities-for-camera)
+              entities-in-z-order (mapcat type->entities types-in-z-order)]
+          (doseq [e entities-in-z-order]
             (draw ctx e world))))
 
       (let [{[camera-width camera-height] :dimensions
@@ -126,53 +171,64 @@
           (canvas/stroke-rect on-screen-ctx 0 0 camera-width camera-height))))
 
     (canvas/fast-state {:context on-screen-ctx
-                        :translate [(- (/ screen-width 2) (/ minimap-size 2)) 0]}
+                        :translate (maths/v- [(/ screen-width 2) (/ screen-height 2)]
+                                             [(/ minimap-size 2) (/ minimap-size 2)])}
       (draw-mini-map on-screen-ctx drawable-entities world))
 
-    (doseq [entity (->> world
+    (doseq [player (->> world
                         :entity-indexes-by-system
                         :tracked-by-camera-index
                         (map #(nth entities %)))]
       (let [camera (-> world
                        :cameras
-                       (nth (:tracked-by-camera-index entity)))
-            camera-top-left (:screen-position camera)
-            camera-height (-> camera :dimensions (nth 1))
-            weapon-box-size 50
-            current-weapon-index (:current-weapon-index entity)]
-        (doseq [[index weapon] (map-indexed vector (:weapons entity))]
-          (canvas/fast-state {:context on-screen-ctx
-                              :translate (maths/v+ camera-top-left
-                                                   [(+ camera-border-width (* index (+ 1 weapon-box-size)))
-                                                    (- camera-height (+ weapon-box-size camera-border-width))])}
-            (canvas/fill-style on-screen-ctx (if (= current-weapon-index index) "red" "dimgrey"))
-            (canvas/fill-rect on-screen-ctx 0 0 weapon-box-size weapon-box-size)
+                       (nth (:tracked-by-camera-index player)))]
+        (render-player-hud on-screen-ctx player camera)))))
 
-            (canvas/fill-style on-screen-ctx "white")
-            (canvas/set-font on-screen-ctx "18px Arial")
-            (canvas/set-text-align on-screen-ctx "center")
-            (canvas/fill-text on-screen-ctx (weapon-type->name (:type weapon)) (/ weapon-box-size 2) (/ weapon-box-size 2))))))))
+(defn render-menu [ctx screen-width screen-height]
+  (canvas/fill-style ctx "black")
+  (canvas/fill-rect ctx 0 0 screen-width screen-height)
 
-(defn render-menu [on-screen-ctx screen-width screen-height]
-  (canvas/fill-style on-screen-ctx "black")
-  (canvas/fill-rect on-screen-ctx 0 0 screen-width screen-height)
+  (canvas/fill-style ctx "white")
+  (canvas/font ctx "30px Arial")
+  (canvas/text-align ctx "center")
+  (canvas/fill-text ctx "Press 2, 3 or 4 to start a game for that many players" (/ screen-width 2) (/ screen-height 2)))
 
-  (canvas/fill-style on-screen-ctx "white")
-  (canvas/set-font on-screen-ctx "30px Arial")
-  (canvas/set-text-align on-screen-ctx "center")
-  (canvas/fill-text on-screen-ctx "Press Enter to Start" (/ screen-width 2) (/ screen-height 2)))
+(defn render-pause-overlay [ctx screen-width screen-height]
+  (canvas/fill-style ctx "black")
+  (canvas/fast-state {:context ctx
+                      :alpha 0.7}
+    (canvas/fill-rect ctx 0 0 screen-width screen-height))
 
-(defn render-pause-overlay [on-screen-ctx screen-width screen-height]
-  (canvas/fill-style on-screen-ctx "rgba(0, 0, 0, 0.6)")
-  (canvas/fill-rect on-screen-ctx 0 0 screen-width screen-height)
+  (canvas/fill-style ctx "white")
+  (canvas/font ctx "30px Arial")
+  (canvas/text-align ctx "center")
+  (canvas/fill-text ctx "Paused" (/ screen-width 2) (/ screen-height 2)))
 
-  (canvas/fill-style on-screen-ctx "white")
-  (canvas/set-font on-screen-ctx "30px Arial")
-  (canvas/set-text-align on-screen-ctx "center")
-  (canvas/fill-text on-screen-ctx "Paused" (/ screen-width 2) (/ screen-height 2)))
+(defn render-fps-overlay [ctx {:keys [fps-history max-fps-history]}]
+  (let [graph-width 250
+        step-width (/ graph-width max-fps-history)
+        offset-for-index (- max-fps-history (count fps-history))
 
-(defn render-fps-overlay [on-screen-ctx fps]
-  (canvas/fill-style on-screen-ctx "white")
-  (canvas/set-font on-screen-ctx "12px Arial")
-  (canvas/set-text-align on-screen-ctx "start")
-  (canvas/fill-text on-screen-ctx (str (.round js/Math fps) " fps") 20 20))
+        graph-height 50
+
+        graph-top 20
+        graph-bottom (+ graph-top graph-height)
+        graph-left 20
+        graph-right (+ graph-left graph-width)
+
+        max-fps 60
+        fps->y (fn [fps] (- graph-bottom (* fps (/ graph-height max-fps))))
+        index->x (fn [index] (+ graph-left (* index step-width)))]
+    (canvas/fill-style ctx "white")
+    (canvas/font ctx "12px Arial")
+    (canvas/text-align ctx "start")
+    (canvas/text-baseline ctx "middle")
+    (canvas/fill-text ctx (str (.round js/Math (last fps-history)) " fps") (+ 5 graph-right) (+ graph-top (/ graph-height 2)))
+
+    (canvas/stroke-style ctx "white")
+    (canvas/line-width ctx 1)
+    (canvas/begin-path ctx)
+    (canvas/move-to ctx graph-left (fps->y (first fps-history)))
+    (doseq [[index fps] (map-indexed vector fps-history)]
+      (canvas/line-to ctx (index->x (+ offset-for-index index)) (fps->y fps)))
+    (canvas/stroke ctx)))

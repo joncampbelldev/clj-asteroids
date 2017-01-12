@@ -1,5 +1,5 @@
-(ns cs-game.maths
-  (:require-macros [cs-game.maths :refer [def-vector-op]]))
+(ns cs-game.util.maths
+  (:require-macros [cs-game.util.maths :refer [def-vector-op]]))
 
 (def pi 3.14159265359)
 (def radians-per-degree (/ pi 180))

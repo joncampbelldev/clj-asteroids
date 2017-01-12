@@ -16,10 +16,8 @@
         offset-y (+ offset y)]
     (+ offset-x (* offset-y cells-per-row))))
 
-(defn get-points-for-entity [entity cell-size]
-  (let [[x y] (:position entity)
-        [width height] (or (:dimensions entity) [(:size entity) (:size entity)])
-        half-width (/ width 2)
+(defn get-points-for-aabb [x y width height cell-size]
+  (let [half-width (/ width 2)
         half-height (/ height 2)
         min-x (int (/ (- x half-width) cell-size))
         max-x (int (/ (+ x half-width) cell-size))
@@ -31,10 +29,14 @@
 
 (defn- add-entity-to-spatial-hash [initial-transient-spatial-hash entity cell-size columns offset]
   (let [id (:id entity)
-        points (get-points-for-entity entity cell-size)]
+        [x y] (:position entity)
+        [width height] (or (:dimensions entity) [(:size entity) (:size entity)])
+        points (get-points-for-aabb x y width height cell-size)]
     (reduce
       (fn [transient-spatial-hash [x y]]
         (let [index (index-for-point x y columns offset)]
+          ; TODO wrap this in a try catch to find out what is causing the errors when hashing
+          ; TODO don't allow invalid indexes during building or retrieval
           (assoc! transient-spatial-hash index (conj (get transient-spatial-hash index) id))))
       initial-transient-spatial-hash
       points)))
@@ -51,8 +53,10 @@
      :rows rows}))
 
 (defn nearby-entity-indexes [spatial-hash entity]
-  (let [{:keys [data cell-size columns offset]} spatial-hash]
-    (->> (get-points-for-entity entity cell-size)
+  (let [{:keys [data cell-size columns offset]} spatial-hash
+        [x y] (:position entity)
+        [width height] (or (:dimensions entity) [(:size entity) (:size entity)])]
+    (->> (get-points-for-aabb x y width height cell-size)
          (mapv (fn [[x y]]
                  (nth data (index-for-point x y columns offset))))
          (apply union))))

@@ -1,7 +1,14 @@
-(ns cs-game.canvas)
+(ns cs-game.util.canvas)
 
 (defn context [dom]
   (.getContext dom "2d"))
+
+;TODO macros for getter/setter of canvas props
+(defn global-alpha
+  ([ctx]
+    (.-globalAlpha ctx))
+  ([ctx alpha]
+   (set! (.-globalAlpha ctx) alpha)))
 
 (defn fill-style [ctx color]
   (set! (.-fillStyle ctx) color))
@@ -51,7 +58,7 @@
 (defn fill-centered-rect [ctx x y width height]
   (fill-rect ctx (- x (/ width 2)) (- y (/ height 2)) width height))
 
-(defn draw-rounded-rect [ctx x y width  height radius]
+(defn draw-rounded-rect [ctx x y width height radius]
   (begin-path ctx)
   (move-to ctx x (+ y radius))
   (line-to ctx x (- (+ y height) radius))
@@ -72,13 +79,16 @@
 (defn draw-image [ctx el sx sy swidth sheight dx dy dwidth dheight]
   (.drawImage ctx el sx sy swidth sheight dx dy dwidth dheight))
 
-(declare .fillText)
 
-(defn set-text-align [ctx text-align]
+(defn text-align [ctx text-align]
   (set! (.-textAlign ctx) text-align))
 
-(defn set-font [ctx font]
+(defn text-baseline [ctx text-baseline]
+  (set! (.-textBaseline ctx) text-baseline))
+
+(defn font [ctx font]
   (set! (.-font ctx) font))
 
+(declare .fillText)
 (defn fill-text [ctx text x y]
   (.fillText ctx text x y))

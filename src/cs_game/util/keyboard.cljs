@@ -1,4 +1,4 @@
-(ns cs-game.keyboard)
+(ns cs-game.util.keyboard)
 
 (def held (atom #{}))
 (def prev-held (atom @held))

@@ -1,10 +1,10 @@
 (ns cs-game.ces
   (:require [cs-game.expanded-lang :refer [map-values strict-empty?]]))
 
-(defn- key-for-system [{:keys [filter-fn label]}]
+(defn key-for-system [{:keys [filter-fn key]}]
   (if (keyword? filter-fn)
-    (or label filter-fn)
-    (or label (throw (js/Error "system must have a keyword as filter-fn or define a custom label")))))
+    (or key filter-fn)
+    (or key (throw (js/Error "system must have a keyword as filter-fn or define a custom label")))))
 
 (defn- safe-conj-to-set [set value]
   (if (nil? set)
@@ -13,9 +13,9 @@
 
 (defn- system-keys-for-entity [entity systems]
   (reduce
-    (fn [system-keys {:keys [filter-fn] :as system}]
+    (fn [system-keys {:keys [filter-fn key]}]
       (if (filter-fn entity)
-        (conj system-keys (key-for-system system))
+        (conj system-keys key)
         system-keys))
     #{}
     systems))
@@ -98,9 +98,8 @@
     initial-world
     entity-indexes))
 
-(defn- run-system [world {:keys [system-fn multiple-entity-system?] :as system}]
-  (let [system-key (key-for-system system)
-        entity-indexes-for-system (-> world :entity-indexes-by-system system-key)]
+(defn- run-system [world {:keys [key system-fn multiple-entity-system?]}]
+  (let [entity-indexes-for-system (-> world :entity-indexes-by-system key)]
     (if (strict-empty? entity-indexes-for-system)
       world
       (if multiple-entity-system?
