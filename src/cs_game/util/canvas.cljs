@@ -29,6 +29,7 @@
 (defn rotate [ctx radians] (.rotate ctx radians))
 
 (defn begin-path [ctx] (.beginPath ctx))
+(defn close-path [ctx] (.closePath ctx))
 
 (defn move-to [ctx x y] (.moveTo ctx x y))
 (defn line-to [ctx x y] (.lineTo ctx x y))
@@ -39,7 +40,8 @@
     (begin-path ctx)
     (move-to ctx fx fy)
     (doseq [[x y] rest-of-points]
-      (line-to ctx x y))))
+      (line-to ctx x y))
+    (close-path ctx)))
 
 (defn arc [ctx x y radius start-angle end-angle counter-clockwise?]
   (.arc ctx x y radius start-angle end-angle counter-clockwise?))

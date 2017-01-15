@@ -1,19 +1,44 @@
 (ns cs-game.collisions
   (:require [cs-game.expanded-lang :refer [group-by-transform strict-empty?]]
-            [cs-game.spatial-hashing :as spatial-hashing]))
+            [cs-game.spatial-hashing :as spatial-hashing]
+            [cs-game.util.sat :as sat]
+            [cs-game.util.maths :as maths]))
 
-(defmulti detect-between
-  (fn [left-entity right-entity _]
+(def reusable-response (new sat/Response))
+
+(defmulti collision-between
+  (fn [left-entity right-entity _ _]
     [(:type left-entity)
      (:type right-entity)]))
+
+(defn narrow-phase-detect [entity1 entity2 response]
+  (let [polygon1 (sat/to-polygon (:position entity1)
+                                 (:points entity1)
+                                 (maths/degrees-to-radians (:rotation entity1)))
+        polygon2 (sat/to-polygon (:position entity2)
+                                 (:points entity2)
+                                 (maths/degrees-to-radians (:rotation entity2)))]
+    (sat/test-polygon-polygon polygon1 polygon2 response)))
+
+(defn mid-phase-colliding? [entity1 entity2]
+  (let [[dx dy] (maths/v- (:position entity1) (:position entity2))
+        dist-sq (+ (* dx dx) (* dy dy))
+        min-dist (+ (/ (:size entity1) 2) (/ (:size entity2) 2))
+        min-dist-sq (* min-dist min-dist)]
+    (< dist-sq min-dist-sq)))
 
 (defn detect-between-indexes [world left-entity-index right-entity-index]
   (let [entities (:entities world)
         left-entity (nth entities left-entity-index)
         right-entity (nth entities right-entity-index)
+        collision-response (and (mid-phase-colliding? left-entity right-entity)
+                                (narrow-phase-detect left-entity right-entity reusable-response))
         [updated-left-entity
          updated-right-entity
-         updated-world] (detect-between left-entity right-entity world)]
+         updated-world] (if collision-response
+                          (collision-between left-entity right-entity collision-response world)
+                          [left-entity right-entity world])]
+    (.clear reusable-response)
     (as-> updated-world w
           (update w :entities assoc left-entity-index updated-left-entity)
           (update w :entities assoc right-entity-index updated-right-entity))))
