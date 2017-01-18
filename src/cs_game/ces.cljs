@@ -43,25 +43,25 @@
     entities))
 
 (defn add-entity-before-render [entity world]
-  (update world :add-before-render #(conj % entity)))
+  (update world :add-before-render conj entity))
 
 (defn add-entities-before-render [entities world]
   (update world :add-before-render #(apply conj % entities)))
 
 (defn add-entity-after-render [entity world]
-  (update world :add-after-render #(conj % entity)))
+  (update world :add-after-render conj entity))
 
 (defn add-entities-after-render [entities world]
   (update world :add-after-render #(apply conj % entities)))
 
 (defn remove-entity-before-render [entity-index world]
-  (update world :remove-before-render #(conj % entity-index)))
+  (update world :remove-before-render conj entity-index))
 
 (defn remove-entities-before-render [entity-indexes world]
   (update world :remove-before-render #(apply conj % entity-indexes)))
 
 (defn remove-entity-after-render [entity-index world]
-  (update world :remove-after-render #(conj % entity-index)))
+  (update world :remove-after-render conj entity-index))
 
 (defn remove-entities-after-render [entity-indexes world]
   (update world :remove-after-render #(apply conj % entity-indexes)))
