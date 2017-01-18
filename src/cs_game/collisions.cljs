@@ -8,8 +8,8 @@
 
 (defmulti collision-between
   (fn [left-entity right-entity _ _]
-    [(:type left-entity)
-     (:type right-entity)]))
+    [(:collision left-entity)
+     (:collision right-entity)]))
 
 (defn narrow-phase-detect [entity1 entity2 response]
   (let [polygon1 (sat/to-polygon (:position entity1)
@@ -85,7 +85,7 @@
               left-entity-indexes)]
         updated-world))))
 
-(def group-ids-by-type (partial group-by-transform :type :id []))
+(def group-ids-by-type (partial group-by-transform :collision :id []))
 
 ; small optimisation available: cache entity-index-by-label on add/remove by wrapping add/remove ces functions
 (defn system [collidable-entity-indexes world]

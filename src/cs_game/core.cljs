@@ -32,8 +32,8 @@
     (assoc entity :velocity scaled-velocity)))
 
 (defn keyboard-move [entity world]
-  (let [rotate-speed 200
-        accel 300
+  (let [rotate-speed (:max-rotate-speed entity)
+        accel (:max-accel entity)
         key-bindings (:key-bindings entity)]
     (as-> entity e
           (if (keyboard/held? (:up key-bindings)) (accelerate-forwards entity (* (:delta world) accel)) e)
@@ -55,9 +55,9 @@
      :size laser-size
      :points (shapes/rectangle 0 0 laser-size 6)
      :color "red"
-     :type :laser
-     :remove-off-screen true
-     :collision true}))
+     :collision :laser
+     :view :laser
+     :remove-off-screen true}))
 
 (defmulti fire-weapon-from-entity (fn [weapon _ _] (:type weapon)))
 
@@ -100,15 +100,15 @@
   (let [[x y] (:position entity)
         half-size (/ (:size entity) 2)
         [world-width world-height] (:dimensions world)
-        left (- 0 half-size)
+        left (- half-size)
         right (+ world-width half-size)
-        top (- 0 half-size)
+        top (- half-size)
         bottom (+ world-height half-size)]
     (cond
-      (< x left) (assoc entity :position [right y])
-      (> x right) (assoc entity :position [left y])
-      (< y top) (assoc entity :position [x bottom])
-      (> y bottom) (assoc entity :position [x top])
+      (< x left) (assoc-in entity [:position 0] right)
+      (> x right) (assoc-in entity [:position 0] left)
+      (< y top) (assoc-in entity [:position 1] bottom)
+      (> y bottom) (assoc-in entity [:position 1] top)
       :else entity)))
 
 (defn remove-off-screen [entity world]
@@ -120,7 +120,7 @@
         top (- 0 size)
         bottom (+ world-height size)
         off-screen? (or (< x left) (> x right) (< y top) (> y bottom))]
-    [entity (if off-screen? (ces/remove-entities-after-render [(:id entity)] world) world)]))
+    [entity (if off-screen? (ces/remove-entity-after-render (:id entity) world) world)]))
 
 (defn bounce-off-edge [entity world]
   (let [[x y] (:position entity)
@@ -158,18 +158,19 @@
     [updated-player asteroid world]))
 
 (def base-explosion
-  {:type :explosion
+  {:view :explosion
+   :state-type :explosion
    :size 1
-   :lifetime 0
+   :time 0
    :alpha 1})
 
 (defn player-explosions [position]
-  [(merge base-explosion {:max-size 100 :position position :color "red" :duration 2.5})
-   (merge base-explosion {:max-size 150 :position position :color "orange" :duration 1.5})
+  [(merge base-explosion {:max-size 100 :position position :color "red" :duration 2.5 :no-outline true})
+   (merge base-explosion {:max-size 150 :position position :color "orange" :duration 1.5 :no-outline true})
    (merge base-explosion {:max-size 250 :position position :color "yellow" :duration 1})])
 
 (defn laser-explosions [position]
-  [(merge base-explosion {:position position :max-size 50 :duration 1 :color "pink"})
+  [(merge base-explosion {:position position :max-size 50 :duration 1 :color "pink" :no-outline true})
    (merge base-explosion {:position position :max-size 100 :duration 0.75 :color "red"})])
 
 (defmethod collisions/collision-between [:player :player] [player1 player2 response world]
@@ -203,33 +204,32 @@
         updated-world (assoc-in world [:cameras camera-index :position] (:position entity))]
     [entity updated-world]))
 
-(defmulti on-death (fn [entity _] (:type entity)))
-
-(defmethod on-death :player [player world]
+(defn on-player-death [player world]
   [player (->> world
-               (ces/remove-entity-before-render (:id player))
+               (ces/remove-entity-after-render (:id player))
                (ces/add-entities-before-render (player-explosions (:position player))))])
 
-(defn check-if-dead [entity world]
-  (if (<= (:health entity) 0)
-    (on-death entity world)
-    entity))
+(defmulti state (fn [entity _] (:state-type entity)))
 
-(defmulti lifetime (fn [entity _] (:type entity)))
+(defn do-state-update [entity world]
+  (let [result (state entity world)
+        [updated-entity updated-world] (cond
+                                         (vector? result) result
+                                         (map? result) [result world])]
+    [(update updated-entity :time + (:delta world)) updated-world]))
 
-(defmethod lifetime :explosion [explosion world]
-  (let [{:keys [lifetime duration]} explosion
-        ease-value (easing/out-expo lifetime duration 0 1)]
-    (if (<= lifetime duration)
+(defmethod state :player [player world]
+  (if (<= (:health player) 0)
+    (on-player-death player world)
+    player))
+
+(defmethod state :explosion [explosion world]
+  (let [{:keys [time duration]} explosion
+        ease-value (easing/out-expo time duration 0 1)]
+    (if (<= time duration)
       (assoc explosion :size (* (:max-size explosion) ease-value)
                        :alpha (- 1 ease-value))
       [explosion (ces/remove-entity-after-render (:id explosion) world)])))
-
-(defn do-lifetime [entity world]
-  (let [result (lifetime entity world)
-        updated-entity (if (vector? result) (nth result 0) result)
-        updated-world (if (vector? result) (nth result 1) world)]
-    [(update updated-entity :lifetime + (:delta world)) updated-world]))
 
 ; NOTE systems that add entities based on positions of existing entities should be placed
 ; after moving / rotating to ensure correct positions
@@ -247,11 +247,8 @@
          {:filter-fn :key-bindings
           :system-fn keyboard-weapon-control}
 
-         {:filter-fn :lifetime
-          :system-fn do-lifetime}
-
-         {:filter-fn :health
-          :system-fn check-if-dead}
+         {:filter-fn :state-type
+          :system-fn do-state-update}
 
          {:filter-fn :bounce-off-edge
           :system-fn bounce-off-edge}
@@ -276,8 +273,12 @@
 (def initial-world-height 4000)
 (def initial-world-dimensions [initial-world-width initial-world-height])
 
+(def single-laser {:type :single-laser :name "1"})
+(def shotgun-laser {:type :shotgun-laser :name "SG"})
+(def starter-weapons [single-laser shotgun-laser])
+
 (defn create-player [{:keys [size health color position velocity rotation]
-                      :or {size 45
+                      :or {size 35
                            health 100
                            color "grey"
                            position [0 0]
@@ -287,16 +288,19 @@
   (merge {:position position
           :velocity velocity
           :rotation rotation
-          :max-speed 300
+          :max-speed 200
+          :max-rotate-speed 200
+          :max-accel 300
           :size size
           :points (shapes/isoceles-triangle size)
-          :weapons [{:type :single-laser :name "1"} {:type :shotgun-laser :name "SG"}]
+          :weapons starter-weapons
           :current-weapon-index 0
           :health health
           :color color
           :bounce-off-edge 0.5
-          :collision true
-          :type :player}
+          :collision :player
+          :view :player
+          :state-type :player}
          overrides))
 
 (defn create-player1 []
@@ -359,9 +363,9 @@
      :rotate-speed (maths/rand-between -30 30)
      :points points
      :color "saddlebrown"
-     :type :asteroid
+     :view :asteroid
      :bounce-off-edge 1
-     :collision true}))
+     :collision :asteroid}))
 
 (defn cameras-for-2players [player1 player2]
   (let [half-screen-width (/ initial-screen-width 2)]
@@ -518,8 +522,6 @@
                         (view/render-pause-overlay on-screen-ctx initial-screen-width initial-screen-height)
                         game))
 
-        _ (view/render-fps-overlay on-screen-ctx game)
-
         current-frame-duration (- (get-time) current-frame-start-time)
         time-to-next-frame (max 0 (- ideal-frame-time current-frame-duration))
 
@@ -531,6 +533,7 @@
                                                 (subvec fps-history (- (count fps-history) max-fps-history))
                                                 fps-history)
                                               (conj fps-history (/ 1000 time-since-last-frame))))]
+    (view/render-fps-overlay on-screen-ctx game)
     (keyboard/tick)
     (js/setTimeout #(update-loop game) time-to-next-frame)))
 

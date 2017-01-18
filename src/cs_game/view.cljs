@@ -9,10 +9,10 @@
 
 (def types-in-z-order [:laser :player :asteroid :explosion])
 
-(defmulti render-entity (fn [_ entity _] (:type entity)))
+(defmulti render-entity (fn [_ entity _] (:view entity)))
 
 (defn outline [ctx]
-  (canvas/line-width ctx 3)
+  (canvas/line-width ctx 2.5)
   (canvas/stroke-style ctx "black")
   (canvas/stroke ctx))
 
@@ -50,7 +50,8 @@
     (canvas/centered-circle ctx 0 0 (/ (:size explosion) 2))
     (canvas/fill-style ctx (:color explosion))
     (canvas/fill ctx)
-    (outline ctx)))
+    (when-not (:no-outline explosion)
+      (outline ctx))))
 
 (defn visible-in-map? [world-width world-height entity]
   (let [[x y] (:position entity)]
@@ -65,14 +66,14 @@
         yscale (/ minimap-size world-height)]
     (canvas/fill-style ctx "black")
     (canvas/fill-rect ctx 0 0 minimap-size minimap-size)
-    (doseq [e (filter #(and (not= :explosion (:type %))
+    (doseq [e (filter #(and (not= :explosion (:view %))
                             (visible-in-map? world-width world-height %))
                       drawable-entities)]
       (let [[x y] (:position e)
             scaled-x (* x xscale)
             scaled-y (* y yscale)
             size-scale (/ (+ xscale yscale) 2)
-            size (condp = (:type e)
+            size (case (:view e)
                    :laser 2
                    :player 6
                    (max 2 (/ (* size-scale (:size e)) 2)))]
@@ -127,9 +128,7 @@
 (defn render-world [off-screen-el off-screen-ctx on-screen-ctx world bg-pattern]
   (let [entities (:entities world)
 
-        ; TODO find an easy way to index entities by properties not involved in a system to get all drawable entities
-        ; TODO currently assumed that all entities are drawable
-        drawable-entities (filterv #(not (nil? %)) entities)
+        drawable-entities (filterv :view entities)
         entity-spatial-hash (spatial-hashing/build drawable-entities (:spatial-hash-config world))
 
         [world-width world-height] (:dimensions world)
@@ -141,7 +140,6 @@
                           :translate (maths/v+
                                        (maths/vneg (:position camera))
                                        (maths/vdiv (:dimensions camera) [2 2]))}
-
 
         (let [[x y] (maths/v- (:position camera) (maths/vdiv (:dimensions camera) [2 2]))
               [width height] (:dimensions camera)]
@@ -155,10 +153,10 @@
 
         (let [entities-for-camera (->> (spatial-hashing/nearby-entity-indexes entity-spatial-hash camera)
                                        (mapv #(nth entities %))
-                                       (sort-by :id))
-              type->entities (group-by :type entities-for-camera)
-              entities-in-z-order (mapcat type->entities types-in-z-order)]
-          (doseq [e entities-in-z-order]
+                                       (sort-by #(or (:z-index %) (:id %))))
+              view->entities (group-by :view entities-for-camera)
+              views-in-z-order (mapcat view->entities types-in-z-order)]
+          (doseq [e views-in-z-order]
             (render-entity ctx e world))))
 
       (let [{[camera-width camera-height] :dimensions
