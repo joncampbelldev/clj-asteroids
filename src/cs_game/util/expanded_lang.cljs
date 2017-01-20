@@ -1,4 +1,4 @@
-(ns cs-game.expanded-lang)
+(ns cs-game.util.expanded-lang)
 
 (defn group-by-transform [key-fn transform-fn initial-collection coll]
   (reduce

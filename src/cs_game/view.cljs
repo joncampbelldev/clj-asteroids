@@ -2,7 +2,7 @@
   (:require [cs-game.util.canvas :as canvas]
             [cs-game.util.maths :as maths]
             [cs-game.spatial-hashing :as spatial-hashing]
-            [cs-game.expanded-lang :refer [concatv]])
+            [cs-game.util.expanded-lang :refer [concatv]])
   (:require-macros [cs-game.util.canvas :as canvas]))
 
 (def minimap-size 200)

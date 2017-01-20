@@ -1,6 +1,6 @@
 (ns cs-game.util.shapes
   (:require [cs-game.util.maths :as maths])
-  (:require-macros [cs-game.expanded-lang :refer [defn-memo]]))
+  (:require-macros [cs-game.util.expanded-lang :refer [defn-memo]]))
 
 (defn-memo rectangle [x y width height]
   (let [half-width (/ width 2)

@@ -1,5 +1,5 @@
 (ns cs-game.ces
-  (:require [cs-game.expanded-lang :refer [map-values strict-empty?]]))
+  (:require [cs-game.util.expanded-lang :refer [map-values strict-empty?]]))
 
 (defn key-for-system [{:keys [filter-fn key]}]
   (if (keyword? filter-fn)

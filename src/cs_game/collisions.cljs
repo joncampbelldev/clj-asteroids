@@ -1,5 +1,5 @@
 (ns cs-game.collisions
-  (:require [cs-game.expanded-lang :refer [group-by-transform strict-empty?]]
+  (:require [cs-game.util.expanded-lang :refer [group-by-transform strict-empty?]]
             [cs-game.spatial-hashing :as spatial-hashing]
             [cs-game.util.sat :as sat]
             [cs-game.util.maths :as maths]))

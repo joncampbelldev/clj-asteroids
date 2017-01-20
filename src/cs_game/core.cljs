@@ -7,10 +7,10 @@
             [cs-game.util.maths :as maths]
             [cs-game.util.easing :as easing]
             [cs-game.collisions :as collisions]
-            [cs-game.expanded-lang :refer [get-window-dimensions get-time strict-empty? concatv]]
+            [cs-game.util.expanded-lang :refer [get-window-dimensions get-time strict-empty? concatv]]
             [cs-game.spatial-hashing :as spatial-hashing]
             [cs-game.util.sat :as sat])
-  (:require-macros [cs-game.expanded-lang :refer [defn-memo]]))
+  (:require-macros [cs-game.util.expanded-lang :refer [defn-memo]]))
 
 (enable-console-print!)
 
@@ -425,11 +425,10 @@
                   4 (apply cameras-for-4players players))
         entities (-> []
                      (concatv players)
-                     (concatv (mapv create-random-asteroid (range 50))))
-        spatial-hash-config (spatial-hashing/generate-config initial-world-width initial-world-height 5 200)]
+                     (concatv (mapv create-random-asteroid (range 50))))]
     (as-> ces/blank-world _
           (merge _ {:collision-groups #{[:player :asteroid] [:laser :asteroid] [:laser :player] [:player :player]}
-                    :spatial-hash-config spatial-hash-config
+                    :spatial-hash-config (spatial-hashing/generate-config initial-world-width initial-world-height 5 200)
                     :dimensions initial-world-dimensions
                     :screen-dimensions initial-screen-dimensions
                     :cameras cameras
@@ -510,9 +509,8 @@
                :in-game (let [game (cond
                                      (keyboard/held? (:reverse-time bindings)) (playback-past game)
                                      (keyboard/just-down? (:pause bindings)) (assoc game :state :pause)
-                                     :else (update-world game))
-                              world (:world game)]
-                          (view/render-world off-screen-canvas-el off-screen-ctx on-screen-ctx world bg-pattern)
+                                     :else (update-world game))]
+                          (view/render-world off-screen-canvas-el off-screen-ctx on-screen-ctx (:world game) bg-pattern)
                           game)
                :pause (let [game (cond
                                    (keyboard/just-down? (:pause bindings)) (assoc game :state :in-game)
