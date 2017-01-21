@@ -17,7 +17,7 @@
   (canvas/stroke ctx))
 
 (defmethod render-entity :laser [ctx laser _]
-  (canvas/fast-state {:context ctx
+  (canvas/fast-state {:ctx ctx
                       :translate (:position laser)
                       :rotation (maths/degrees-to-radians (:rotation laser))}
     (canvas/draw-points ctx (:points laser))
@@ -26,7 +26,7 @@
     (outline ctx)))
 
 (defmethod render-entity :player [ctx player _]
-  (canvas/fast-state {:context ctx
+  (canvas/fast-state {:ctx ctx
                       :translate (:position player)
                       :rotation (maths/degrees-to-radians (:rotation player))}
     (canvas/draw-points ctx (:points player))
@@ -35,7 +35,7 @@
     (outline ctx)))
 
 (defmethod render-entity :asteroid [ctx asteroid _]
-  (canvas/fast-state {:context ctx
+  (canvas/fast-state {:ctx ctx
                       :translate (:position asteroid)
                       :rotation (maths/degrees-to-radians (:rotation asteroid))}
     (canvas/draw-points ctx (:points asteroid))
@@ -44,7 +44,7 @@
     (outline ctx)))
 
 (defmethod render-entity :explosion [ctx explosion _]
-  (canvas/fast-state {:context ctx
+  (canvas/fast-state {:ctx ctx
                       :translate (:position explosion)
                       :alpha (:alpha explosion)}
     (canvas/centered-circle ctx 0 0 (/ (:size explosion) 2))
@@ -94,7 +94,7 @@
 (defn render-weapons [ctx player]
   (let [current-weapon-index (:current-weapon-index player)]
     (doseq [[index weapon] (map-indexed vector (:weapons player))]
-      (canvas/fast-state {:context ctx :translate [(* index (+ 2 weapon-box-size)) 0]}
+      (canvas/fast-state {:ctx ctx :translate [(* index (+ 2 weapon-box-size)) 0]}
         (canvas/fill-style ctx (if (= current-weapon-index index) "red" "dimgrey"))
         (canvas/fill-rect ctx 0 0 weapon-box-size weapon-box-size)
 
@@ -114,13 +114,13 @@
         starting-y (case (:hud-position camera)
                      :top 0
                      :bottom (- camera-height hud-height))]
-    (canvas/fast-state {:context ctx
+    (canvas/fast-state {:ctx ctx
                         :translate (maths/v+ [0 starting-y]
                                              horizontal-spacer
                                              vertical-spacer
                                              camera-top-left)}
       (render-health-bar ctx player)
-      (canvas/fast-state {:context ctx
+      (canvas/fast-state {:ctx ctx
                           :translate (maths/v+ vertical-spacer
                                                [0 health-bar-height])}
         (render-weapons ctx player)))))
@@ -136,7 +136,7 @@
         ctx off-screen-ctx]
     (doseq [camera (:cameras world)]
 
-      (canvas/fast-state {:context ctx
+      (canvas/fast-state {:ctx ctx
                           :translate (maths/v+
                                        (maths/vneg (:position camera))
                                        (maths/vdiv (:dimensions camera) [2 2]))}
@@ -161,7 +161,7 @@
 
       (let [{[camera-width camera-height] :dimensions
              screen-position :screen-position} camera]
-        (canvas/fast-state {:context on-screen-ctx
+        (canvas/fast-state {:ctx on-screen-ctx
                             :translate screen-position}
           (canvas/draw-image on-screen-ctx off-screen-el
                              0 0 camera-width camera-height
@@ -180,7 +180,7 @@
                        (nth (:tracked-by-camera-index player)))]
         (render-player-hud on-screen-ctx player camera)))
 
-    (canvas/fast-state {:context on-screen-ctx
+    (canvas/fast-state {:ctx on-screen-ctx
                         :translate (maths/v- [(/ screen-width 2) (/ screen-height 2)]
                                              [(/ minimap-size 2) (/ minimap-size 2)])}
       (render-minimap on-screen-ctx drawable-entities world))))
@@ -195,7 +195,7 @@
   (canvas/fill-text ctx "Press 2, 3 or 4 to start a game for that many players" (/ screen-width 2) (/ screen-height 2)))
 
 (defn render-pause-overlay [ctx screen-width screen-height]
-  (canvas/fast-state {:context ctx
+  (canvas/fast-state {:ctx ctx
                       :alpha 0.7}
     (canvas/fill-style ctx "black")
     (canvas/fill-rect ctx 0 0 screen-width screen-height))
