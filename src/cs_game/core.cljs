@@ -53,7 +53,7 @@
      :velocity velocity
      :rotation (:rotation entity)
      :size laser-size
-     :points (shapes/rectangle 0 0 laser-size 6)
+     :points (shapes/rectangle laser-size 6)
      :color "red"
      :collision :laser
      :view :laser

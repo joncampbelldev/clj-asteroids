@@ -2,13 +2,13 @@
   (:require [cs-game.util.maths :as maths])
   (:require-macros [cs-game.util.expanded-lang :refer [defn-memo]]))
 
-(defn-memo rectangle [x y width height]
+(defn-memo rectangle [width height]
   (let [half-width (/ width 2)
         half-height (/ height 2)]
-    [[(- x half-width) (- y half-height)]
-     [(+ x half-width) (- y half-height)]
-     [(+ x half-width) (+ y half-height)]
-     [(- x half-width) (+ y half-height)]]))
+    [[(- half-width) (- half-height)]
+     [(+ half-width) (- half-height)]
+     [(+ half-width) (+ half-height)]
+     [(- half-width) (+ half-height)]]))
 
 (defn-memo isoceles-triangle [circle-size]
   [[(* circle-size 0.5) 0]
