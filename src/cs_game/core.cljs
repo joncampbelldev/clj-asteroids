@@ -522,6 +522,7 @@
 
         current-frame-duration (- (get-time) current-frame-start-time)
         time-to-next-frame (max 0 (- ideal-frame-time current-frame-duration))
+        time-of-decision (get-time)
 
         game (assoc game :last-frame-start-time current-frame-start-time)
 
@@ -533,7 +534,7 @@
                                               (conj fps-history (/ 1000 time-since-last-frame))))]
     (view/render-fps-overlay on-screen-ctx game)
     (keyboard/tick)
-    (js/setTimeout #(update-loop game) time-to-next-frame)))
+    (js/setTimeout #(update-loop game) (- time-to-next-frame (- (get-time) time-of-decision)))))
 
 #_(defn on-resize []
     (let [window-dimensions (get-window-dimensions)
