@@ -14,36 +14,27 @@
   (canvas/stroke-style ctx "black")
   (canvas/stroke ctx))
 
-(defmulti render-entity (fn [_ entity _] (:view entity)))
-
-(defmethod render-entity :laser [ctx laser _]
+(defn render-polygon [ctx {:keys [position rotation color points]}]
   (canvas/fast-state {:ctx ctx
-                      :translate (:position laser)
-                      :rotation (maths/degrees-to-radians (:rotation laser))}
-    (canvas/draw-points ctx (:points laser))
-    (canvas/fill-style ctx (:color laser))
+                      :translate position
+                      :rotation (maths/degrees-to-radians rotation)}
+    (canvas/draw-points ctx points)
+    (canvas/fill-style ctx color)
     (canvas/fill ctx)
     (outline ctx)))
 
-(defmethod render-entity :player [ctx player _]
-  (canvas/fast-state {:ctx ctx
-                      :translate (:position player)
-                      :rotation (maths/degrees-to-radians (:rotation player))}
-    (canvas/draw-points ctx (:points player))
-    (canvas/fill-style ctx (:color player))
-    (canvas/fill ctx)
-    (outline ctx)))
+(defmulti render-entity (fn [_ entity] (:view entity)))
 
-(defmethod render-entity :asteroid [ctx asteroid _]
-  (canvas/fast-state {:ctx ctx
-                      :translate (:position asteroid)
-                      :rotation (maths/degrees-to-radians (:rotation asteroid))}
-    (canvas/draw-points ctx (:points asteroid))
-    (canvas/fill-style ctx (:color asteroid))
-    (canvas/fill ctx)
-    (outline ctx)))
+(defmethod render-entity :laser [ctx laser]
+  (render-polygon ctx laser))
 
-(defmethod render-entity :explosion [ctx explosion _]
+(defmethod render-entity :player [ctx player]
+  (render-polygon ctx player))
+
+(defmethod render-entity :asteroid [ctx asteroid]
+  (render-polygon ctx asteroid))
+
+(defmethod render-entity :explosion [ctx explosion]
   (canvas/fast-state {:ctx ctx
                       :translate (:position explosion)
                       :alpha (:alpha explosion)}
@@ -157,7 +148,7 @@
               view->entities (group-by :view entities-for-camera)
               entities-in-z-order (mapcat view->entities views-in-z-order)]
           (doseq [e entities-in-z-order]
-            (render-entity ctx e world))))
+            (render-entity ctx e))))
 
       (let [{[camera-width camera-height] :dimensions
              screen-position :screen-position} camera]
