@@ -7,14 +7,14 @@
 
 (def minimap-size 200)
 
-(def types-in-z-order [:laser :player :asteroid :explosion])
-
-(defmulti render-entity (fn [_ entity _] (:view entity)))
+(def views-in-z-order [:laser :player :asteroid :explosion])
 
 (defn outline [ctx]
   (canvas/line-width ctx 2.5)
   (canvas/stroke-style ctx "black")
   (canvas/stroke ctx))
+
+(defmulti render-entity (fn [_ entity _] (:view entity)))
 
 (defmethod render-entity :laser [ctx laser _]
   (canvas/fast-state {:ctx ctx
@@ -155,8 +155,8 @@
                                        (mapv #(nth entities %))
                                        (sort-by #(or (:z-index %) (:id %))))
               view->entities (group-by :view entities-for-camera)
-              views-in-z-order (mapcat view->entities types-in-z-order)]
-          (doseq [e views-in-z-order]
+              entities-in-z-order (mapcat view->entities views-in-z-order)]
+          (doseq [e entities-in-z-order]
             (render-entity ctx e world))))
 
       (let [{[camera-width camera-height] :dimensions
@@ -172,7 +172,7 @@
           (canvas/stroke-rect on-screen-ctx 0 0 camera-width camera-height))))
 
     (doseq [player (->> world
-                        :entity-indexes-by-system
+                        :system->entity-indexes
                         :tracked-by-camera-index
                         (map #(nth entities %)))]
       (let [camera (-> world

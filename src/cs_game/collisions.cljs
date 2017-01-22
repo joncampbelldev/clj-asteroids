@@ -49,7 +49,7 @@
       (= left-entity-index right-entity-index)
       (contains? collision-index-pairs #{left-entity-index right-entity-index}))))
 
-(defn detect-for-group [initial-world [left-label right-label] label->entity-indexes label->spatial-hash]
+(defn detect-for-collision-pair [initial-world [left-label right-label] label->entity-indexes label->spatial-hash]
   (let [left-entity-indexes (get label->entity-indexes left-label)
         right-entity-indexes (get label->entity-indexes left-label)
         right-spatial-hash (get label->spatial-hash right-label)
@@ -87,7 +87,7 @@
 
 (def group-ids-by-type (partial group-by-transform :collision :id []))
 
-; small optimisation available: cache entity-index-by-label on add/remove by wrapping add/remove ces functions
+; small optimisation available: cache label->entity-indexes on add/remove by wrapping add/remove ces functions
 (defn system [collidable-entity-indexes world]
   (let [all-entities (:entities world)
         collidable-entities (mapv #(nth all-entities %) collidable-entity-indexes)
@@ -100,6 +100,6 @@
                               {}
                               label->entity-indexes)]
     (reduce
-      #(detect-for-group %1 %2 label->entity-indexes label->spatial-hash)
+      #(detect-for-collision-pair %1 %2 label->entity-indexes label->spatial-hash)
       world
-      (:collision-groups world))))
+      (:collision-pairs world))))

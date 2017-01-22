@@ -32,7 +32,7 @@
           (update w :entities assoc entity-index indexed-entity)
           (reduce
             (fn [world system-key]
-              (update-in world [:entity-indexes-by-system system-key] #(safe-conj-to-set %1 entity-index)))
+              (update-in world [:system->entity-indexes system-key] #(safe-conj-to-set %1 entity-index)))
             w
             system-keys))))
 
@@ -71,7 +71,7 @@
         (update w :entities assoc entity-index nil)
         (update
           w
-          :entity-indexes-by-system
+          :system->entity-indexes
           (fn [system->entity-indexes] (map-values #(disj % entity-index) system->entity-indexes)))
         (update w :reusable-indexes conj entity-index)))
 
@@ -99,7 +99,7 @@
     entity-indexes))
 
 (defn- run-system [world {:keys [key system-fn multiple-entity-system?]}]
-  (let [entity-indexes-for-system (-> world :entity-indexes-by-system key)]
+  (let [entity-indexes-for-system (-> world :system->entity-indexes key)]
     (if (strict-empty? entity-indexes-for-system)
       world
       (if multiple-entity-system?
@@ -121,7 +121,7 @@
 (def blank-world
   {:entities []
    :reusable-indexes []
-   :entity-indexes-by-system {}
+   :system->entity-indexes {}
    :remove-before-render #{}
    :remove-after-render #{}
    :add-before-render []
