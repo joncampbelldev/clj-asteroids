@@ -1,25 +1,28 @@
 (ns cs-game.util.expanded-lang)
 
 (defn group-by-transform [key-fn transform-fn initial-collection coll]
-  (reduce
-    (fn [m e]
-      (let [k (key-fn e)
-            v (transform-fn e)]
-        (assoc m k (conj (get m k initial-collection) v))))
-    {}
-    coll))
+  (persistent! (reduce
+                 (fn [m e]
+                   (let [k (key-fn e)
+                         v (transform-fn e)]
+                     (assoc! m k (conj (get m k initial-collection) v))))
+                 (transient {})
+                 coll)))
 
 (defn strict-empty? [v]
   (= 0 (count v)))
 
-(defn concatv [& vs]
-  (into [] (apply concat vs)))
+(defn concatv
+  ([v1 v2]
+   (into v1 v2))
+  ([v1 v2 & vs]
+   (into v1 (apply concat v2 vs))))
 
 (defn index-by [key-fn coll]
-  (reduce
-    (fn [m e] (assoc m (key-fn e) e))
-    {}
-    coll))
+  (persistent! (reduce
+                 (fn [m e] (assoc! m (key-fn e) e))
+                 (transient {})
+                 coll)))
 
 (defn map-values
   [f m]
