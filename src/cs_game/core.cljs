@@ -285,7 +285,7 @@
    :bounce-off-edge 0.5
 
    :collision :player
-   :view :player
+   :view :spaceship
    :death-type :player})
 
 (defn create-player1 []

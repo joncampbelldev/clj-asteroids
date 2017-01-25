@@ -7,7 +7,7 @@
 
 (def minimap-size 200)
 
-(def views-in-z-order [:laser :player :asteroid :explosion])
+(def views-in-z-order [:laser :spaceship :asteroid :explosion])
 
 (defn outline [ctx]
   (canvas/line-width ctx 2.5)
@@ -28,8 +28,8 @@
 (defmethod render-entity :laser [ctx laser]
   (render-polygon ctx laser))
 
-(defmethod render-entity :player [ctx player]
-  (render-polygon ctx player))
+(defmethod render-entity :spaceship [ctx spaceship]
+  (render-polygon ctx spaceship))
 
 (defmethod render-entity :asteroid [ctx asteroid]
   (render-polygon ctx asteroid))
