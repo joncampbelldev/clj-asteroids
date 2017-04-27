@@ -28,7 +28,7 @@
       [px py])))
 
 (defn- add-entity-to-spatial-hash [initial-transient-spatial-hash entity cell-size columns offset]
-  (let [id (:id entity)
+  (let [id (:entity/id entity)
         [x y] (:position entity)
         [width height] (or (:dimensions entity) [(:size entity) (:size entity)])
         points (get-points-for-aabb x y width height cell-size)]

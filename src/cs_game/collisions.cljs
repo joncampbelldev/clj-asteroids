@@ -7,16 +7,16 @@
 (def reusable-response (new sat/Response))
 
 (defmulti collision-between
-  (fn [left-entity right-entity _ _]
-    [(:collision left-entity)
-     (:collision right-entity)]))
+          (fn [left-entity right-entity _ _]
+    [(:entity/collision left-entity)
+     (:entity/collision right-entity)]))
 
 (defn narrow-phase-detect [entity1 entity2 response]
   (let [polygon1 (sat/to-polygon (:position entity1)
-                                 (:points entity1)
+                                 (:entity/collision-polygon-points entity1)
                                  (maths/degrees-to-radians (:rotation entity1)))
         polygon2 (sat/to-polygon (:position entity2)
-                                 (:points entity2)
+                                 (:entity/collision-polygon-points entity2)
                                  (maths/degrees-to-radians (:rotation entity2)))]
     (sat/test-polygon-polygon polygon1 polygon2 response)))
 
@@ -28,7 +28,7 @@
     (< dist-sq min-dist-sq)))
 
 (defn detect-between-indexes [world left-entity-index right-entity-index]
-  (let [entities (:entities world)
+  (let [entities (:ces/entities world)
         left-entity (nth entities left-entity-index)
         right-entity (nth entities right-entity-index)
         collision-response (and (mid-phase-colliding? left-entity right-entity)
@@ -40,8 +40,8 @@
                           [left-entity right-entity world])]
     (.clear reusable-response)
     (as-> updated-world w
-          (update w :entities assoc left-entity-index updated-left-entity)
-          (update w :entities assoc right-entity-index updated-right-entity))))
+          (update w :ces/entities assoc left-entity-index updated-left-entity)
+          (update w :ces/entities assoc right-entity-index updated-right-entity))))
 
 (defn collision-check-necessary? [left-entity-index right-entity-index collision-index-pairs]
   (not
@@ -58,7 +58,7 @@
         [left-entity-indexes right-entity-indexes] (if swap?
                                                      [right-entity-indexes left-entity-indexes]
                                                      [left-entity-indexes right-entity-indexes])
-        initial-entities (:entities initial-world)]
+        initial-entities (:ces/entities initial-world)]
     (if (or (strict-empty? left-entity-indexes) (strict-empty? right-entity-indexes))
       initial-world
       (let [initial-collision-index-pairs #{}
@@ -85,11 +85,11 @@
               left-entity-indexes)]
         updated-world))))
 
-(def group-ids-by-type (partial group-by-transform :collision :id []))
+(def group-ids-by-type (partial group-by-transform :entity/collision :entity/id []))
 
 ; small optimisation available: cache label->entity-indexes on add/remove by wrapping add/remove ces functions
 (defn system [collidable-entity-indexes world]
-  (let [all-entities (:entities world)
+  (let [all-entities (:ces/entities world)
         collidable-entities (mapv #(nth all-entities %) collidable-entity-indexes)
         label->entity-indexes (group-ids-by-type collidable-entities)
         label->spatial-hash (reduce-kv

@@ -11,6 +11,8 @@
 (defn sin [x] (.sin js/Math x))
 (defn tan [x] (.tan js/Math x))
 
+(defn safe+ [& xs] (apply + (map #(if % % 0) xs)))
+
 (def-vector-op v+ +)
 (def-vector-op v- -)
 (def-vector-op vdiv /)

@@ -1,7 +1,7 @@
 (ns cs-game.ces
   (:require [cs-game.util.expanded-lang :refer [map-values strict-empty?]]))
 
-(defn key-for-system [{:keys [filter-fn key]}]
+(defn key-for-system [{:keys [ces/filter-fn key]}]
   (if (keyword? filter-fn)
     (or key filter-fn)
     (or key (throw (js/Error "system must have a keyword as filter-fn or define a custom label")))))
@@ -13,7 +13,7 @@
 
 (defn- system-keys-for-entity [entity systems]
   (reduce
-    (fn [system-keys {:keys [filter-fn key]}]
+    (fn [system-keys {:keys [ces/filter-fn key]}]
       (if (filter-fn entity)
         (conj system-keys key)
         system-keys))
@@ -21,18 +21,18 @@
     systems))
 
 (defn- add-entity-to-world [entity initial-world systems]
-  (let [reusuable-indexes (:reusable-indexes initial-world)
+  (let [reusuable-indexes (:ces/reusable-indexes initial-world)
         [entity-index leftover-reusable-indexes] (if (strict-empty? reusuable-indexes)
-                                                   [(count (:entities initial-world)) reusuable-indexes]
+                                                   [(count (:ces/entities initial-world)) reusuable-indexes]
                                                    [(peek reusuable-indexes) (pop reusuable-indexes)])
-        indexed-entity (assoc entity :id entity-index)
+        indexed-entity (assoc entity :entity/id entity-index)
         system-keys (system-keys-for-entity entity systems)]
     (as-> initial-world w
-          (assoc w :reusable-indexes leftover-reusable-indexes)
-          (update w :entities assoc entity-index indexed-entity)
+          (assoc w :ces/reusable-indexes leftover-reusable-indexes)
+          (update w :ces/entities assoc entity-index indexed-entity)
           (reduce
             (fn [world system-key]
-              (update-in world [:system->entity-indexes system-key] #(safe-conj-to-set %1 entity-index)))
+              (update-in world [:ces/system->entity-indexes system-key] #(safe-conj-to-set %1 entity-index)))
             w
             system-keys))))
 
@@ -43,37 +43,37 @@
     entities))
 
 (defn add-entity-before-render [entity world]
-  (update world :add-before-render conj entity))
+  (update world :ces/add-before-render conj entity))
 
 (defn add-entities-before-render [entities world]
-  (update world :add-before-render #(apply conj % entities)))
+  (update world :ces/add-before-render #(apply conj % entities)))
 
 (defn add-entity-after-render [entity world]
-  (update world :add-after-render conj entity))
+  (update world :ces/add-after-render conj entity))
 
 (defn add-entities-after-render [entities world]
-  (update world :add-after-render #(apply conj % entities)))
+  (update world :ces/add-after-render #(apply conj % entities)))
 
 (defn remove-entity-before-render [entity-index world]
-  (update world :remove-before-render conj entity-index))
+  (update world :ces/remove-before-render conj entity-index))
 
 (defn remove-entities-before-render [entity-indexes world]
-  (update world :remove-before-render #(apply conj % entity-indexes)))
+  (update world :ces/remove-before-render #(apply conj % entity-indexes)))
 
 (defn remove-entity-after-render [entity-index world]
-  (update world :remove-after-render conj entity-index))
+  (update world :ces/remove-after-render conj entity-index))
 
 (defn remove-entities-after-render [entity-indexes world]
-  (update world :remove-after-render #(apply conj % entity-indexes)))
+  (update world :ces/remove-after-render #(apply conj % entity-indexes)))
 
 (defn- remove-entity [entity-index world]
   (as-> world w
-        (update w :entities assoc entity-index nil)
+        (update w :ces/entities assoc entity-index nil)
         (update
           w
-          :system->entity-indexes
+          :ces/system->entity-indexes
           (fn [system->entity-indexes] (map-values #(disj % entity-index) system->entity-indexes)))
-        (update w :reusable-indexes conj entity-index)))
+        (update w :ces/reusable-indexes conj entity-index)))
 
 (defn- remove-entities [entity-indexes initial-world]
   (reduce
@@ -91,15 +91,15 @@
 (defn- run-single-entity-system [system-fn entity-indexes initial-world]
   (reduce
     (fn [world entity-index]
-      (let [entities (:entities world)
+      (let [entities (:ces/entities world)
             entity (nth entities entity-index)
             [updated-entity updated-world] (normalise-system-fn-call system-fn entity world)]
-        (update updated-world :entities assoc (:id updated-entity) updated-entity)))
+        (update updated-world :ces/entities assoc (:entity/id updated-entity) updated-entity)))
     initial-world
     entity-indexes))
 
-(defn- run-system [world {:keys [key system-fn multiple-entity-system?]}]
-  (let [entity-indexes-for-system (-> world :system->entity-indexes key)]
+(defn- run-system [world {:keys [key ces/system-fn ces/multiple-entity-system?]}]
+  (let [entity-indexes-for-system (-> world :ces/system->entity-indexes key)]
     (if (strict-empty? entity-indexes-for-system)
       world
       (if multiple-entity-system?
@@ -108,21 +108,21 @@
 
 (defn run-systems [world systems]
   (as-> world w
-        (remove-entities (:remove-after-render w) w)
-        (assoc w :remove-after-render #{})
-        (add-entities-to-world (:add-after-render w) w systems)
-        (assoc w :add-after-render [])
+        (remove-entities (:ces/remove-after-render w) w)
+        (assoc w :ces/remove-after-render #{})
+        (add-entities-to-world (:ces/add-after-render w) w systems)
+        (assoc w :ces/add-after-render [])
         (reduce run-system w systems)
-        (remove-entities (:remove-before-render w) w)
-        (assoc w :remove-before-render #{})
-        (add-entities-to-world (:add-before-render w) w systems)
-        (assoc w :add-before-render [])))
+        (remove-entities (:ces/remove-before-render w) w)
+        (assoc w :ces/remove-before-render #{})
+        (add-entities-to-world (:ces/add-before-render w) w systems)
+        (assoc w :ces/add-before-render [])))
 
 (def blank-world
-  {:entities []
-   :reusable-indexes []
-   :system->entity-indexes {}
-   :remove-before-render #{}
-   :remove-after-render #{}
-   :add-before-render []
-   :add-after-render []})
+  {:ces/entities []
+   :ces/reusable-indexes []
+   :ces/system->entity-indexes {}
+   :ces/remove-before-render #{}
+   :ces/remove-after-render #{}
+   :ces/add-before-render []
+   :ces/add-after-render []})
