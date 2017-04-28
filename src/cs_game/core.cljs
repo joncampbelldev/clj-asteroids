@@ -577,36 +577,31 @@
 
 (defn update-loop [game]
   (let [current-frame-start-time (get-time)
-        game (assoc game :current-frame-start-time current-frame-start-time)
-
-        time-since-last-frame (- current-frame-start-time (:game/last-frame-start-time game))
-        ideal-frame-time (:game/ideal-frame-time game)
-        game (assoc-in game [:game/world :delta] (/ time-since-last-frame 1000))
-
-        game (case (:game/state game)
-               :game-state/menu (cond
-                                  (keyboard/just-down? (:start-game-2player bindings)) (start-game game 2)
-                                  (keyboard/just-down? (:start-game-3player bindings)) (start-game game 3)
-                                  (keyboard/just-down? (:start-game-4player bindings)) (start-game game 4)
-                                  :else game)
-               :game-state/in-game (cond
-                                     (keyboard/held? (:reverse-time bindings)) (playback-past game)
-                                     (keyboard/just-down? (:pause bindings)) (assoc game :game/state :game-state/pause)
-                                     :else (update-world game))
-               :game-state/pause (cond
-                                   (keyboard/just-down? (:pause bindings)) (assoc game :game/state :game-state/in-game)
-                                   (keyboard/just-down? (:back-to-menu bindings)) (assoc game :game/state :game-state/menu)
-                                   :else game))
-
-        time-of-decision (get-time)
-        current-frame-duration (- time-of-decision current-frame-start-time)
-        time-to-next-frame (max 0 (- ideal-frame-time current-frame-duration))
-
-        game (assoc game :game/last-frame-start-time current-frame-start-time)
-        game (update game :game/fps-history #(update-fps-history % (:game/max-fps-history game) time-since-last-frame))]
+        last-frame-start-time (:game/last-frame-start-time game)
+        time-since-last-frame (- current-frame-start-time last-frame-start-time)
+        game (as-> game g
+                   (assoc-in g [:game/world :delta] (/ time-since-last-frame 1000))
+                   (assoc g :game/last-frame-start-time current-frame-start-time)
+                   (case (:game/state g)
+                     :game-state/menu (cond
+                                        (keyboard/just-down? (:start-game-2player bindings)) (start-game g 2)
+                                        (keyboard/just-down? (:start-game-3player bindings)) (start-game g 3)
+                                        (keyboard/just-down? (:start-game-4player bindings)) (start-game g 4)
+                                        :else g)
+                     :game-state/in-game (cond
+                                           (keyboard/held? (:reverse-time bindings)) (playback-past g)
+                                           (keyboard/just-down? (:pause bindings)) (assoc g :game/state :game-state/pause)
+                                           :else (update-world g))
+                     :game-state/pause (cond
+                                         (keyboard/just-down? (:pause bindings)) (assoc g :game/state :game-state/in-game)
+                                         (keyboard/just-down? (:back-to-menu bindings)) (assoc g :game/state :game-state/menu)
+                                         :else g))
+                   (update g :game/fps-history #(update-fps-history % (:game/max-fps-history g) time-since-last-frame)))]
     (render game)
     (keyboard/tick)
-    (js/setTimeout #(update-loop game) (- time-to-next-frame (- (get-time) time-of-decision)))))
+    (let [current-frame-duration (- (get-time) current-frame-start-time)
+          time-to-next-frame (max 0 (- (:game/ideal-frame-time game) current-frame-duration))]
+      (js/setTimeout #(update-loop game) time-to-next-frame))))
 
 #_(defn on-resize []
     (let [window-dimensions (get-window-dimensions)
