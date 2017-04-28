@@ -494,7 +494,10 @@
                      (concatv (mapv create-random-asteroid (range 50))))]
     (as-> ces/blank-world _
           (merge _ {:collision-pairs collision-pairs
-                    :spatial-hash-config (spatial-hashing/generate-config initial-world-width initial-world-height 5 200)
+                    :spatial-hash-config (spatial-hashing/generate-config initial-world-width
+                                                                          initial-world-height
+                                                                          5
+                                                                          200)
                     :dimensions initial-world-dimensions
                     :screen-dimensions initial-screen-dimensions
                     :cameras cameras
@@ -565,6 +568,13 @@
                         (view/render-pause-overlay on-screen-ctx initial-screen-width initial-screen-height)))
   (view/render-fps-overlay on-screen-ctx game))
 
+(defn update-fps-history [fps-history max-frames-to-keep time-since-last-frame]
+  (as-> fps-history fps-history
+        (if (> (count fps-history) max-frames-to-keep)
+          (subvec fps-history (- (count fps-history) max-frames-to-keep))
+          fps-history)
+        (conj fps-history (/ 1000 time-since-last-frame))))
+
 (defn update-loop [game]
   (let [current-frame-start-time (get-time)
         game (assoc game :current-frame-start-time current-frame-start-time)
@@ -593,13 +603,7 @@
         time-to-next-frame (max 0 (- ideal-frame-time current-frame-duration))
 
         game (assoc game :game/last-frame-start-time current-frame-start-time)
-
-        max-fps-history (:game/max-fps-history game)
-        game (update game :game/fps-history #(as-> % fps-history
-                                                   (if (> (count fps-history) max-fps-history)
-                                                     (subvec fps-history (- (count fps-history) max-fps-history))
-                                                     fps-history)
-                                                   (conj fps-history (/ 1000 time-since-last-frame))))]
+        game (update game :game/fps-history #(update-fps-history % (:game/max-fps-history game) time-since-last-frame))]
     (render game)
     (keyboard/tick)
     (js/setTimeout #(update-loop game) (- time-to-next-frame (- (get-time) time-of-decision)))))
