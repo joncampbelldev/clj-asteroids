@@ -52,6 +52,7 @@
      :columns columns
      :rows rows}))
 
+; TODO don't return self index
 (defn nearby-entity-indexes [spatial-hash entity]
   (let [{:keys [data cell-size columns offset]} spatial-hash
         [x y] (:position entity)

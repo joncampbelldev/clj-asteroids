@@ -9,7 +9,9 @@
             [cs-game.collisions :as collisions]
             [cs-game.util.expanded-lang :refer [get-window-dimensions get-time strict-empty? concatv]]
             [cs-game.spatial-hashing :as spatial-hashing]
-            [cs-game.util.sat :as sat])
+            [cs-game.util.sat :as sat]
+
+            [cljs.pprint :refer [pprint]])
   (:require-macros [cs-game.util.expanded-lang :refer [defn-memo]]))
 
 (enable-console-print!)
@@ -75,7 +77,7 @@
 
 (defn create-missile-at-entity [entity]
   (let [rotation (maths/degrees-to-radians (:rotation entity))
-        speed 400
+        speed 200
         cos-rotation (maths/cos rotation)
         sin-rotation (maths/sin rotation)
         velocity (maths/v+ [(* speed cos-rotation) (* speed sin-rotation)]
@@ -88,8 +90,12 @@
      :rotation (:rotation entity)
      :size size
 
-     :max-accel 1000
-     :fuel-lasts 10
+     :fired-by-index (:entity/id entity)
+     :range 600
+     :max-accel 900
+     :max-speed 500
+     :max-rotate-speed 270
+     :fuel-time 5
      :entity/state-type :entity-state-type/missile
 
      :entity/collision-polygon-points polygon-points
@@ -266,21 +272,67 @@
                        :view/alpha (- 1 ease-value))
       [explosion (ces/remove-entity-after-render (:entity/id explosion) world)])))
 
-(defmethod state :entity-state-type/missile [missile world]
-  ;(find-nearest-player (:position missile) world)
-  ; launched - search for target within range, fly straight at constant speed
-  ; locked - rotation tracks asymptotically to target, constant acceleration towards target, max velocity
+(defn find-nearest-spaceship [missile world]
+  (let [range (:range missile)
 
-  #_(case (:missile-state missile)
-      :launched
-      :locked)
-  (let [has-fuel? (< (:entity/time missile) (:fuel-lasts missile))]
-    (if has-fuel?
-      (assoc missile :velocity (accelerate-forwards (:rotation missile)
-                                                    (:velocity missile)
-                                                    99999999
-                                                    (* (:delta world) (:max-accel missile))))
-      missile)))
+        entity-spatial-hash (:entity-spatial-hash world)
+        entities (:ces/entities world)
+        nearby-entity-indexes (spatial-hashing/nearby-entity-indexes entity-spatial-hash {:position (:position missile)
+                                                                                          :size (* range 2)})
+        nearby-entities (mapv #(nth entities %) nearby-entity-indexes)
+        nearby-spaceships (filterv #(and (= (:entity/collision %) :entity-collision/spaceship)
+                                         (not= (:entity/id %) (:fired-by-index missile))
+                                         (< (maths/vmag (maths/v- (:position %) (:position missile))) range))
+                                   nearby-entities)]
+    ; TODO find closest within radius
+    (first nearby-spaceships)))
+
+(defn aim-missile-towards-target [missile target delta]
+  (update missile
+          :rotation
+          (fn [current-angle]
+            (let [current-angle (mod current-angle 360)
+
+                  predicted-position (maths/v+ (:position target) (maths/v* [2 2] [delta delta] (:velocity target)))
+                  [dx dy] (maths/v- predicted-position (:position missile))
+                  angle-to-target (maths/radians-to-degrees (maths/atan2 dy dx))
+
+                  delta-angle (maths/abs (- current-angle angle-to-target))
+                  go-other-way? (> delta-angle 180)
+
+                  [current-angle angle-to-target] (cond
+                                                    (and go-other-way? (> angle-to-target current-angle)) [current-angle (- angle-to-target 360)]
+                                                    (and go-other-way? (> current-angle angle-to-target)) [(- current-angle 360) angle-to-target]
+                                                    :else [current-angle angle-to-target])]
+              (maths/move-towards-linear current-angle angle-to-target (* delta (:max-rotate-speed missile)))))))
+
+(defmethod state :entity-state-type/missile [missile world]
+  (case (:missile-state missile)
+    :searching
+    (if-let [nearest-spaceship (find-nearest-spaceship missile world)]
+      (assoc missile :missile-state :locked
+                     :missile-target-index (:entity/id nearest-spaceship))
+      missile)
+
+    :locked
+    (cond
+      (nil? (nth (:ces/entities world) (:missile-target-index missile)))
+      (-> missile
+          (assoc :missile-state :searching)
+          (dissoc :missile-target-index))
+
+      (pos? (:fuel-time missile))
+      (-> missile
+          (aim-missile-towards-target (nth (:ces/entities world) (:missile-target-index missile)) (:delta world))
+          (assoc :velocity (accelerate-forwards (:rotation missile)
+                                                (:velocity missile)
+                                                (:max-speed missile)
+                                                (* (:delta world) (:max-accel missile))))
+          (update :fuel-time - (:delta world)))
+
+      :else missile)
+
+    (assoc missile :missile-state :searching)))
 
 ; NOTE systems that add entities based on positions of existing entities should be placed
 ; after moving / rotating to ensure correct positions
@@ -357,6 +409,7 @@
 (defn create-player1 []
   (merge base-player
          {:view/color "white"
+          :entity/team 1
           :position [(* initial-world-width 0.34) (* initial-world-height 0.34)]
           :rotation 45
           :entity/tracked-by-camera-index 0
@@ -372,19 +425,21 @@
   (merge base-player
          {:view/color "green"
           :rotation 135
+          :entity/team 2
           :position [(* initial-world-width 0.67) (* initial-world-height 0.34)]
           :entity/tracked-by-camera-index 1
           :entity/control-bindings {:left 37
                                     :right 39
                                     :up 38
                                     :down 40
-                                    :shoot 75
-                                    :change-weapon 76}}))
+                                    :shoot 79
+                                    :change-weapon 80}}))
 
 (defn create-player3 []
   (merge base-player
          {:view/color "blue"
           :rotation 315
+          :entity/team 3
           :position [(* initial-world-width 0.34) (* initial-world-height 0.67)]
           :entity/tracked-by-camera-index 2
           :entity/control-bindings {:left 37
@@ -398,6 +453,7 @@
   (merge base-player
          {:view/color "purple"
           :rotation 225
+          :entity/team 4
           :position [(* initial-world-width 0.67) (* initial-world-height 0.67)]
           :entity/tracked-by-camera-index 3
           :entity/control-bindings {:left 37
@@ -491,7 +547,7 @@
                   4 (apply cameras-for-4players players))
         entities (-> []
                      (concatv players)
-                     (concatv (mapv create-random-asteroid (range 50))))]
+                     (concatv (mapv create-random-asteroid (range 40))))]
     (as-> ces/blank-world _
           (merge _ {:collision-pairs collision-pairs
                     :spatial-hash-config (spatial-hashing/generate-config initial-world-width
@@ -515,7 +571,9 @@
 (canvas/set-size on-screen-canvas-el initial-screen-width initial-screen-height)
 (def on-screen-ctx (canvas/context on-screen-canvas-el))
 
-(def bindings {:bullet-time 84
+(def bindings {:toggle-debug 81
+               :toggle-freeze-time 69
+               :bullet-time 84
                :reverse-time 82
                :pause 27
                :back-to-menu 81
@@ -548,6 +606,9 @@
         current-delta-scale (-> game :game/world :delta-scale)
         new-delta-scale (maths/move-towards-linear current-delta-scale target-delta-scale 0.05)]
     (as-> game g
+          (assoc-in g [:game/world :entity-spatial-hash] (spatial-hashing/build
+                                                           (filterv (complement nil?) (-> g :game/world :ces/entities))
+                                                           (-> g :game/world :spatial-hash-config)))
           (assoc-in g [:game/world :delta] (* (-> game :game/world :delta) new-delta-scale))
           (assoc-in g [:game/world :delta-scale] new-delta-scale)
           (snapshot-world-to-past g)
@@ -562,7 +623,8 @@
 (defn render [game]
   (case (:game/state game)
     :game-state/menu (view/render-menu on-screen-ctx initial-screen-width initial-screen-height)
-    :game-state/in-game (view/render-world off-screen-canvas-el off-screen-ctx on-screen-ctx (:game/world game) bg-pattern)
+    (:game-state/in-game
+      :game-state/frozen) (view/render-world off-screen-canvas-el off-screen-ctx on-screen-ctx (:game/world game) bg-pattern)
     :game-state/pause (do
                         (view/render-world off-screen-canvas-el off-screen-ctx on-screen-ctx (:game/world game) bg-pattern)
                         (view/render-pause-overlay on-screen-ctx initial-screen-width initial-screen-height)))
@@ -575,11 +637,17 @@
           fps-history)
         (conj fps-history (/ 1000 time-since-last-frame))))
 
-(defn update-loop [game]
-  (let [current-frame-start-time (get-time)
+(defonce repl-game-snapshot (atom nil))
+(defn update-loop []
+  (let [game @repl-game-snapshot
+
+        current-frame-start-time (get-time)
         last-frame-start-time (:game/last-frame-start-time game)
         time-since-last-frame (- current-frame-start-time last-frame-start-time)
         game (as-> game g
+                   (if (keyboard/just-down? (:toggle-debug bindings))
+                     (update-in g [:game/world :debug?] not)
+                     g)
                    (assoc-in g [:game/world :delta] (/ time-since-last-frame 1000))
                    (assoc g :game/last-frame-start-time current-frame-start-time)
                    (case (:game/state g)
@@ -590,18 +658,26 @@
                                         :else g)
                      :game-state/in-game (cond
                                            (keyboard/held? (:reverse-time bindings)) (playback-past g)
+                                           (keyboard/just-down? (:toggle-freeze-time bindings)) (assoc g :game/state :game-state/frozen)
                                            (keyboard/just-down? (:pause bindings)) (assoc g :game/state :game-state/pause)
                                            :else (update-world g))
                      :game-state/pause (cond
                                          (keyboard/just-down? (:pause bindings)) (assoc g :game/state :game-state/in-game)
                                          (keyboard/just-down? (:back-to-menu bindings)) (assoc g :game/state :game-state/menu)
-                                         :else g))
+                                         :else g)
+                     :game-state/frozen (cond
+                                          (keyboard/just-down? (:reverse-time bindings)) (playback-past g)
+                                          (keyboard/just-down? (:bullet-time bindings)) (update-world g)
+                                          (keyboard/just-down? (:toggle-freeze-time bindings)) (assoc g :game/state :game-state/in-game)
+                                          :else g)
+                     g)
                    (update g :game/fps-history #(update-fps-history % (:game/max-fps-history g) time-since-last-frame)))]
     (render game)
     (keyboard/tick)
     (let [current-frame-duration (- (get-time) current-frame-start-time)
           time-to-next-frame (max 0 (- (:game/ideal-frame-time game) current-frame-duration))]
-      (js/setTimeout #(update-loop game) time-to-next-frame))))
+      (js/setTimeout #(update-loop) time-to-next-frame)
+      (reset! repl-game-snapshot game))))
 
 #_(defn on-resize []
     (let [window-dimensions (get-window-dimensions)
@@ -619,7 +695,21 @@
               :game/ideal-frame-time (/ 1000 ideal-fps)
               :game/max-frames-of-past (* 60 ideal-fps)
               :game/state :game-state/menu}]
-    (update-loop game)))
+    (reset! repl-game-snapshot game)
+    (update-loop)))
+
+; for repl stuff
+(defn repl-game [] @repl-game-snapshot)
+(defn repl-world [] (:game/world (repl-game)))
+(defn repl-entity
+  ([index] (nth (:ces/entities (repl-world)) index))
+  ([index f & args]
+   (let [entity (repl-entity index)
+         updated-entity (apply f entity args)]
+     (swap! repl-game-snapshot assoc-in [:game/world :ces/entities index] updated-entity)
+     updated-entity)))
+(defn repl-add-entities [& entities]
+  (swap! repl-game-snapshot update #(ces/add-entities-to-world entities % systems)))
 
 (defonce _ (start))
 (comment _ on-js-reload)

@@ -13,7 +13,7 @@
   [(.-x v) (.-y v)])
 
 (defn to-polygon [position points rotation]
-  (let [polygon (Polygon. (to-vector position) (into-array (map to-vector points)))]
+  (let [polygon (Polygon. (to-vector position) (into-array (mapv to-vector points)))]
     (.setAngle polygon rotation)
     polygon))
 

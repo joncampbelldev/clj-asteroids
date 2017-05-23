@@ -12,7 +12,7 @@
 
 (defmulti render-entity (fn [_ entity] (:view/type entity)))
 
-(defmethod render-entity :view-type/polygon [ctx {:keys [position rotation view/color view/polygon-points]}]
+(defmethod render-entity :view-type/polygon [ctx {:keys [position rotation view/color view/polygon-points] :as entity}]
   (canvas/fast-state {:ctx ctx
                       :translate position
                       :rotation (maths/degrees-to-radians rotation)}
@@ -45,8 +45,7 @@
         yscale (/ minimap-size world-height)]
     (canvas/fill-style ctx "black")
     (canvas/fill-rect ctx 0 0 minimap-size minimap-size)
-    (doseq [e (filterv #(and (:view/show-in-minimap %)
-                             (within-world-boundaries? world-width world-height %))
+    (doseq [e (filterv #(within-world-boundaries? world-width world-height %)
                        drawable-entities)]
       (let [[x y] (:position e)
             scaled-x (* x xscale)
@@ -82,7 +81,6 @@
 
 (def padding 5)
 (def vertical-spacer [0 padding])
-(def horizontal-spacer [padding 0])
 (def hud-height (+ padding health-bar-height padding weapon-box-size padding))
 (defn render-player-hud [ctx player camera]
   (let [camera-top-left (:screen-position camera)
@@ -91,8 +89,7 @@
                      :top 0
                      :bottom (- camera-height hud-height))]
     (canvas/fast-state {:ctx ctx
-                        :translate (maths/v+ [0 starting-y]
-                                             horizontal-spacer
+                        :translate (maths/v+ [padding starting-y]
                                              vertical-spacer
                                              camera-top-left)}
       (render-health-bar ctx player)
@@ -101,11 +98,17 @@
                                                [0 health-bar-height])}
         (render-weapons ctx player)))))
 
+(defn render-entity-id [ctx {:keys [size position entity/id]}]
+  (canvas/fast-state {:ctx ctx
+                      :translate position}
+    (canvas/fill-style ctx "white")
+    (canvas/font ctx "20px Arial")
+    (canvas/text-align ctx "center")
+    (canvas/fill-text ctx id (- (/ size 2)) (- (/ size 2)))))
+
 (defn render-world [off-screen-el off-screen-ctx on-screen-ctx world bg-pattern]
   (let [entities (:ces/entities world)
-
-        drawable-entities (filterv :view/type entities)
-        entity-spatial-hash (spatial-hashing/build drawable-entities (:spatial-hash-config world))
+        entity-spatial-hash (:entity-spatial-hash world)
 
         [world-width world-height] (:dimensions world)
         [screen-width screen-height] (:screen-dimensions world)
@@ -131,8 +134,10 @@
               entities-for-camera (->> (spatial-hashing/nearby-entity-indexes entity-spatial-hash camera)
                                        (mapv #(nth entities %))
                                        (sort-by comparator))]
-          (doseq [e entities-for-camera]
-            (render-entity ctx e))))
+          (doseq [e (filterv :view/type entities-for-camera)]
+            (render-entity ctx e)
+            (if (:debug? world)
+              (render-entity-id ctx e)))))
 
       (let [{[camera-width camera-height] :dimensions
              screen-position :screen-position} camera]
@@ -149,7 +154,7 @@
     (doseq [player (->> world
                         :ces/system->entity-indexes
                         :entity/tracked-by-camera-index
-                        (map #(nth entities %)))]
+                        (mapv #(nth entities %)))]
       (let [camera (-> world
                        :cameras
                        (nth (:entity/tracked-by-camera-index player)))]
@@ -158,7 +163,7 @@
     (canvas/fast-state {:ctx on-screen-ctx
                         :translate (maths/v- [(/ screen-width 2) (/ screen-height 2)]
                                              [(/ minimap-size 2) (/ minimap-size 2)])}
-      (render-minimap on-screen-ctx drawable-entities world))))
+      (render-minimap on-screen-ctx (filterv :view/show-in-minimap entities) world))))
 
 (defn render-menu [ctx screen-width screen-height]
   (canvas/fill-style ctx "black")

@@ -92,6 +92,11 @@
   (let [all-entities (:ces/entities world)
         collidable-entities (mapv #(nth all-entities %) collidable-entity-indexes)
         label->entity-indexes (group-ids-by-type collidable-entities)
+        ; maybe just use entity spatial hash?
+        ; for each entity
+        ;   find nearby entities
+        ;   filter to collideable with current entity
+        ;   check collisions
         label->spatial-hash (reduce-kv
                               (fn [label->sh label entity-indexes-for-label]
                                 (let [entities-with-label (mapv #(nth all-entities %) entity-indexes-for-label)

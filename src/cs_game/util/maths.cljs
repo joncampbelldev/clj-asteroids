@@ -3,15 +3,20 @@
 
 (def pi 3.14159265359)
 (def radians-per-degree (/ pi 180))
+(def degrees-per-radian (/ 180 pi))
 
 (defn degrees-to-radians [degrees]
   (* degrees radians-per-degree))
 
+(defn radians-to-degrees [radians]
+  (* radians degrees-per-radian))
+
 (defn cos [x] (.cos js/Math x))
 (defn sin [x] (.sin js/Math x))
 (defn tan [x] (.tan js/Math x))
+(defn atan2 [y x] (.atan2 js/Math y x))
 
-(defn safe+ [& xs] (apply + (map #(if % % 0) xs)))
+(defn safe+ [& xs] (apply + (mapv #(if % % 0) xs)))
 
 (def-vector-op v+ +)
 (def-vector-op v- -)
