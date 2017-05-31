@@ -16,6 +16,8 @@
 
 (enable-console-print!)
 
+; TODO give everything (lasers/missiles) a health, collisions cause damage, death causes explosion
+
 (def entity-type->z-index
   {:weapon 100
    :spaceship 200
@@ -77,10 +79,10 @@
 
 (defn create-missile-at-entity [entity]
   (let [rotation (maths/degrees-to-radians (:rotation entity))
-        speed 200
+        initial-speed 200
         cos-rotation (maths/cos rotation)
         sin-rotation (maths/sin rotation)
-        velocity (maths/v+ [(* speed cos-rotation) (* speed sin-rotation)]
+        velocity (maths/v+ [(* initial-speed cos-rotation) (* initial-speed sin-rotation)]
                            (:velocity entity))
         size 30
         polygon-points (shapes/rectangle size 10)]
@@ -93,9 +95,9 @@
      :fired-by-index (:entity/id entity)
      :range 600
      :max-accel 900
-     :max-speed 500
-     :max-rotate-speed 270
-     :fuel-time 5
+     :max-speed 400
+     :max-rotate-speed 360
+     :fuel-time (maths/rand-between 3 6)
      :entity/state-type :entity-state-type/missile
 
      :entity/collision-polygon-points polygon-points
@@ -112,11 +114,11 @@
 
 (defmethod fire-weapon-from-entity :weapon-type/missile [weapon entity world]
   (let [missile (create-missile-at-entity entity)]
-    [weapon entity (ces/add-entity-before-render missile world)]))
+    [weapon entity (ces/add-entity missile world)]))
 
 (defmethod fire-weapon-from-entity :weapon-type/single-laser [weapon entity world]
   (let [laser (create-laser-at-entity entity 0 "lightgreen")]
-    [weapon entity (ces/add-entity-before-render laser world)]))
+    [weapon entity (ces/add-entity laser world)]))
 
 (defmethod fire-weapon-from-entity :weapon-type/shotgun-laser [weapon entity world]
   (let [lasers [(create-laser-at-entity entity 0 "red")
@@ -124,7 +126,7 @@
                 (create-laser-at-entity entity 4 "red")
                 (create-laser-at-entity entity -8 "red")
                 (create-laser-at-entity entity 8 "red")]]
-    [weapon entity (ces/add-entities-before-render lasers world)]))
+    [weapon entity (ces/add-entities lasers world)]))
 
 (defn shoot [entity world]
   (let [weapons (:weapons entity)
@@ -159,7 +161,7 @@
         top (- 0 size)
         bottom (+ world-height size)
         off-screen? (or (< x left) (> x right) (< y top) (> y bottom))]
-    [entity (if off-screen? (ces/remove-entity-after-render (:entity/id entity) world) world)]))
+    [entity (if off-screen? (ces/remove-entity (:entity/id entity) world) world)]))
 
 (defn bounce-off-edge [entity world]
   (let [[x y] (:position entity)
@@ -229,8 +231,8 @@
 
 (defn explode-laser [laser world]
   (->> world
-       (ces/remove-entity-after-render (:entity/id laser))
-       (ces/add-entities-before-render (laser-explosions laser))))
+       (ces/remove-entity (:entity/id laser))
+       (ces/add-entities (laser-explosions laser))))
 
 (defmethod collisions/collision-between [:entity-collision/projectile :entity-collision/asteroid] [laser asteroid _ world]
   [laser asteroid (explode-laser laser world)])
@@ -247,8 +249,8 @@
 
 (defmethod on-entity-death :entity-collision/spaceship [spaceship world]
   [spaceship (->> world
-                  (ces/remove-entity-after-render (:entity/id spaceship))
-                  (ces/add-entities-before-render (spaceship-explosions (:position spaceship))))])
+                  (ces/remove-entity (:entity/id spaceship))
+                  (ces/add-entities (spaceship-explosions (:position spaceship))))])
 
 (defn check-if-dead [entity world]
   (if (<= (:entity/health entity) 0)
@@ -270,7 +272,7 @@
     (if (<= time duration)
       (assoc explosion :size (* (:max-size explosion) ease-value)
                        :view/alpha (- 1 ease-value))
-      [explosion (ces/remove-entity-after-render (:entity/id explosion) world)])))
+      [explosion (ces/remove-entity (:entity/id explosion) world)])))
 
 (defn find-nearest-spaceship [missile world]
   (let [range (:range missile)
@@ -548,8 +550,8 @@
         entities (-> []
                      (concatv players)
                      (concatv (mapv create-random-asteroid (range 40))))]
-    (as-> ces/blank-world _
-          (merge _ {:collision-pairs collision-pairs
+    (as-> ces/blank-world w
+          (merge w {:collision-pairs collision-pairs
                     :spatial-hash-config (spatial-hashing/generate-config initial-world-width
                                                                           initial-world-height
                                                                           5
@@ -559,7 +561,8 @@
                     :cameras cameras
                     :delta 1
                     :delta-scale 1})
-          (ces/add-entities-after-render entities _))))
+          (ces/add-entities entities w)
+          (ces/run-systems w systems))))
 
 (def off-screen-canvas-el (.getElementById js/document "off-screen-canvas"))
 (canvas/set-size off-screen-canvas-el initial-screen-width initial-screen-height)
@@ -676,7 +679,7 @@
     (keyboard/tick)
     (let [current-frame-duration (- (get-time) current-frame-start-time)
           time-to-next-frame (max 0 (- (:game/ideal-frame-time game) current-frame-duration))]
-      (js/setTimeout #(update-loop) time-to-next-frame)
+      (js/setTimeout update-loop time-to-next-frame)
       (reset! repl-game-snapshot game))))
 
 #_(defn on-resize []
