@@ -8,8 +8,8 @@
 
 (defmulti collision-between
           (fn [left-entity right-entity _ _]
-    [(:entity/collision left-entity)
-     (:entity/collision right-entity)]))
+            [(:entity/collision left-entity)
+             (:entity/collision right-entity)]))
 
 (defn narrow-phase-detect [entity1 entity2 response]
   (let [polygon1 (sat/to-polygon (:position entity1)
@@ -51,13 +51,8 @@
 
 (defn detect-for-collision-pair [initial-world [left-label right-label] label->entity-indexes label->spatial-hash]
   (let [left-entity-indexes (get label->entity-indexes left-label)
-        right-entity-indexes (get label->entity-indexes left-label)
-        right-spatial-hash (get label->spatial-hash right-label)
-
-        swap? (> (count left-entity-indexes) (count right-entity-indexes))
-        [left-entity-indexes right-entity-indexes] (if swap?
-                                                     [right-entity-indexes left-entity-indexes]
-                                                     [left-entity-indexes right-entity-indexes])
+        right-entity-indexes (get label->entity-indexes right-label)
+        spatial-hash (get label->spatial-hash right-label)
         initial-entities (:ces/entities initial-world)]
     (if (or (strict-empty? left-entity-indexes) (strict-empty? right-entity-indexes))
       initial-world
@@ -66,7 +61,7 @@
             (reduce
               (fn [[world collision-index-pairs] left-entity-index]
                 (let [initial-left-entity (nth initial-entities left-entity-index)
-                      nearby-right-entity-indexes (spatial-hashing/nearby-entity-indexes right-spatial-hash initial-left-entity)]
+                      nearby-right-entity-indexes (spatial-hashing/nearby-entity-indexes spatial-hash initial-left-entity)]
                   (reduce
                     (fn [[world collision-index-pairs] right-entity-index]
                       (let [check-collision? (collision-check-necessary? left-entity-index
