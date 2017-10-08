@@ -136,7 +136,7 @@
                                        (sort-by comparator))]
           (doseq [e (filterv :view/type entities-for-camera)]
             (render-entity ctx e)
-            (if (:debug? world)
+            (when (:debug? world)
               (render-entity-id ctx e)))))
 
       (let [{[camera-width camera-height] :dimensions
