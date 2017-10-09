@@ -9,7 +9,6 @@
             [cs-game.collisions :as collisions]
             [cs-game.util.expanded-lang :refer [get-window-dimensions get-time strict-empty? concatv]]
             [cs-game.spatial-hashing :as spatial-hashing]
-            [cs-game.util.sat :as sat]
 
             [cljs.pprint :refer [pprint]])
   (:require-macros [cs-game.util.expanded-lang :refer [defn-memo]]))
@@ -17,6 +16,7 @@
 (enable-console-print!)
 
 ; TODO give everything (lasers/missiles) a health, collisions cause damage, death causes explosion
+; TODO use main entity spatial hash for collisions
 
 (def entity-type->z-index
   {:weapon 100
@@ -65,7 +65,7 @@
     {:position (maths/v+ (:position entity)
                          [(* (:size entity) cos-rotation) (* (:size entity) sin-rotation)])
      :velocity velocity
-     :rotation (:rotation entity)
+     :rotation (+ offset-angle-in-degrees (:rotation entity))
      :size size
      :entity/collision :entity-collision/projectile
      :entity/collision-polygon-points polygon-points
@@ -95,9 +95,9 @@
      :fired-by-index (:entity/id entity)
      :range 600
      :max-accel 900
-     :max-speed 400
-     :max-rotate-speed 360
-     :fuel-time (maths/rand-between 3 6)
+     :max-speed 300
+     :max-rotate-speed 270
+     :fuel-time (maths/rand-between 4 7)
      :entity/state-type :entity-state-type/missile
 
      :entity/collision-polygon-points polygon-points
@@ -127,6 +127,12 @@
                 (create-laser-at-entity entity -8 "red")
                 (create-laser-at-entity entity 8 "red")]]
     [weapon entity (ces/add-entities lasers world)]))
+
+(defmethod fire-weapon-from-entity :weapon-type/scatter-shot [weapon entity world]
+  (let [colours ["red" "pink" "blue" "lightblue" "green" "white" "black"]
+        shots (repeatedly (maths/rand-between 8 16)
+                          #(create-laser-at-entity entity (maths/rand-between 0 360) (rand-nth colours)))]
+    [weapon entity (ces/add-entities shots world)]))
 
 (defn shoot [entity world]
   (let [weapons (:weapons entity)
@@ -374,14 +380,15 @@
 (def initial-screen-dimensions (get-window-dimensions))
 (def initial-screen-width (nth initial-screen-dimensions 0))
 (def initial-screen-height (nth initial-screen-dimensions 1))
-(def initial-world-width 4000)
-(def initial-world-height 4000)
+(def initial-world-width 3000)
+(def initial-world-height 3000)
 (def initial-world-dimensions [initial-world-width initial-world-height])
 
 (def single-laser {:weapon/type :weapon-type/single-laser :weapon/short-label "1"})
 (def shotgun-laser {:weapon/type :weapon-type/shotgun-laser :weapon/short-label "SG"})
+(def scatter-shot {:weapon/type :weapon-type/scatter-shot :weapon/short-label "X"})
 (def missile {:weapon/type :weapon-type/missile :weapon/short-label "M"})
-(def starter-weapons [single-laser shotgun-laser missile])
+(def starter-weapons [single-laser shotgun-laser scatter-shot missile])
 
 (def default-player-size 35)
 (def player-polygon-points (shapes/isoceles-triangle default-player-size))
@@ -549,7 +556,7 @@
                   4 (apply cameras-for-4players players))
         entities (-> []
                      (concatv players)
-                     (concatv (mapv create-random-asteroid (range 40))))]
+                     (concatv (mapv create-random-asteroid (range 35))))]
     (as-> ces/blank-world w
           (merge w {:collision-pairs collision-pairs
                     :spatial-hash-config (spatial-hashing/generate-config initial-world-width
@@ -574,8 +581,11 @@
 (canvas/set-size on-screen-canvas-el initial-screen-width initial-screen-height)
 (def on-screen-ctx (canvas/context on-screen-canvas-el))
 
-(def bindings {:toggle-debug 81
-               :toggle-freeze-time 69
+(def bindings {:toggle-freeze-time 69
+               :step-forwards 190
+               :step-backwards 188
+
+               :toggle-debug 81
                :bullet-time 84
                :reverse-time 82
                :pause 27
@@ -625,13 +635,49 @@
 
 (defn render [game]
   (case (:game/state game)
-    :game-state/menu (view/render-menu on-screen-ctx initial-screen-width initial-screen-height)
+    :game-state/menu (view/render-menu on-screen-ctx
+                                       initial-screen-width
+                                       initial-screen-height)
     (:game-state/in-game
-      :game-state/frozen) (view/render-world off-screen-canvas-el off-screen-ctx on-screen-ctx (:game/world game) bg-pattern)
-    :game-state/pause (do
-                        (view/render-world off-screen-canvas-el off-screen-ctx on-screen-ctx (:game/world game) bg-pattern)
-                        (view/render-pause-overlay on-screen-ctx initial-screen-width initial-screen-height)))
+      :game-state/frozen) (view/render-world off-screen-canvas-el
+                                             off-screen-ctx on-screen-ctx
+                                             (:game/world game)
+                                             bg-pattern)
+    :game-state/pause (do (view/render-world off-screen-canvas-el
+                                             off-screen-ctx on-screen-ctx
+                                             (:game/world game)
+                                             bg-pattern)
+                          (view/render-pause-overlay on-screen-ctx
+                                                     initial-screen-width
+                                                     initial-screen-height)))
   (view/render-fps-overlay on-screen-ctx game))
+
+(defn handle-global-input [game]
+  (as-> game g
+        (case (:game/state g)
+          :game-state/menu (cond
+                             (keyboard/just-down? (:start-game-2player bindings)) (start-game g 2)
+                             (keyboard/just-down? (:start-game-3player bindings)) (start-game g 3)
+                             (keyboard/just-down? (:start-game-4player bindings)) (start-game g 4)
+                             :else g)
+          :game-state/in-game (cond
+                                (keyboard/held? (:reverse-time bindings)) (playback-past g)
+                                (keyboard/just-down? (:toggle-freeze-time bindings)) (assoc g :game/state :game-state/frozen)
+                                (keyboard/just-down? (:pause bindings)) (assoc g :game/state :game-state/pause)
+                                :else (update-world g))
+          :game-state/pause (cond
+                              (keyboard/just-down? (:pause bindings)) (assoc g :game/state :game-state/in-game)
+                              (keyboard/just-down? (:back-to-menu bindings)) (assoc g :game/state :game-state/menu)
+                              :else g)
+          :game-state/frozen (cond
+                               (keyboard/just-down? (:step-backwards bindings)) (playback-past g)
+                               (keyboard/just-down? (:step-forwards bindings)) (update-world g)
+                               (keyboard/just-down? (:toggle-freeze-time bindings)) (assoc g :game/state :game-state/in-game)
+                               :else g)
+          g)
+        (if (keyboard/just-down? (:toggle-debug bindings))
+          (update-in g [:game/world :debug?] not)
+          g)))
 
 (defn update-fps-history [fps-history max-frames-to-keep time-since-last-frame]
   (as-> fps-history fps-history
@@ -643,38 +689,14 @@
 (defonce repl-game-snapshot (atom nil))
 (defn update-loop []
   (let [game @repl-game-snapshot
-
         current-frame-start-time (get-time)
         last-frame-start-time (:game/last-frame-start-time game)
         time-since-last-frame (- current-frame-start-time last-frame-start-time)
         game (as-> game g
-                   (if (keyboard/just-down? (:toggle-debug bindings))
-                     (update-in g [:game/world :debug?] not)
-                     g)
                    (assoc-in g [:game/world :delta] (/ time-since-last-frame 1000))
                    (assoc g :game/last-frame-start-time current-frame-start-time)
-                   (case (:game/state g)
-                     :game-state/menu (cond
-                                        (keyboard/just-down? (:start-game-2player bindings)) (start-game g 2)
-                                        (keyboard/just-down? (:start-game-3player bindings)) (start-game g 3)
-                                        (keyboard/just-down? (:start-game-4player bindings)) (start-game g 4)
-                                        :else g)
-                     :game-state/in-game (cond
-                                           (keyboard/held? (:reverse-time bindings)) (playback-past g)
-                                           (keyboard/just-down? (:toggle-freeze-time bindings)) (assoc g :game/state :game-state/frozen)
-                                           (keyboard/just-down? (:pause bindings)) (assoc g :game/state :game-state/pause)
-                                           :else (update-world g))
-                     :game-state/pause (cond
-                                         (keyboard/just-down? (:pause bindings)) (assoc g :game/state :game-state/in-game)
-                                         (keyboard/just-down? (:back-to-menu bindings)) (assoc g :game/state :game-state/menu)
-                                         :else g)
-                     :game-state/frozen (cond
-                                          (keyboard/just-down? (:reverse-time bindings)) (playback-past g)
-                                          (keyboard/just-down? (:bullet-time bindings)) (update-world g)
-                                          (keyboard/just-down? (:toggle-freeze-time bindings)) (assoc g :game/state :game-state/in-game)
-                                          :else g)
-                     g)
-                   (update g :game/fps-history #(update-fps-history % (:game/max-fps-history g) time-since-last-frame)))]
+                   (handle-global-input g)
+                   (update g :game/fps-history update-fps-history (:game/max-fps-history g) time-since-last-frame))]
     (render game)
     (keyboard/tick)
     (let [current-frame-duration (- (get-time) current-frame-start-time)
@@ -715,4 +737,4 @@
   (swap! repl-game-snapshot update #(ces/add-entities-to-world entities % systems)))
 
 (defonce _ (start))
-(comment _ on-js-reload)
+(comment _ on-js-reload repl-add-entities)
