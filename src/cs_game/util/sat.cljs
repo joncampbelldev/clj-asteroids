@@ -17,8 +17,12 @@
     (.setAngle polygon rotation)
     polygon))
 
-(defn test-polygon-polygon [polygon1 polygon2 response]
-  (let [colliding? (.testPolygonPolygon js/SAT polygon1 polygon2 response)]
+(def reusable-response (new Response))
+
+(defn test-polygon-polygon [polygon1 polygon2]
+  (let [colliding? (.testPolygonPolygon js/SAT polygon1 polygon2 reusable-response)]
     (if colliding?
-      {:overlap (from-vector (.-overlapV response))}
+      (let [response {:overlap (from-vector (.-overlapV reusable-response))}]
+        (.clear reusable-response)
+        response)
       nil)))

@@ -4,21 +4,19 @@
             [cs-game.util.sat :as sat]
             [cs-game.util.maths :as maths]))
 
-(def reusable-response (new sat/Response))
-
 (defmulti collision-between
           (fn [left-entity right-entity _ _]
             [(:entity/collision left-entity)
              (:entity/collision right-entity)]))
 
-(defn narrow-phase-detect [entity1 entity2 response]
+(defn narrow-phase-detect [entity1 entity2]
   (let [polygon1 (sat/to-polygon (:position entity1)
                                  (:entity/collision-polygon-points entity1)
                                  (maths/degrees-to-radians (:rotation entity1)))
         polygon2 (sat/to-polygon (:position entity2)
                                  (:entity/collision-polygon-points entity2)
                                  (maths/degrees-to-radians (:rotation entity2)))]
-    (sat/test-polygon-polygon polygon1 polygon2 response)))
+    (sat/test-polygon-polygon polygon1 polygon2)))
 
 (defn mid-phase-colliding? [entity1 entity2]
   (let [[dx dy] (maths/v- (:position entity1) (:position entity2))
@@ -27,79 +25,57 @@
         min-dist-sq (* min-dist min-dist)]
     (< dist-sq min-dist-sq)))
 
-(defn detect-between-indexes [world left-entity-index right-entity-index]
-  (let [entities (:ces/entities world)
-        left-entity (nth entities left-entity-index)
-        right-entity (nth entities right-entity-index)
-        collision-response (and (mid-phase-colliding? left-entity right-entity)
-                                (narrow-phase-detect left-entity right-entity reusable-response))
+(defn detect-between-indexes [world left-entity right-entity]
+  (let [collision-response (and (mid-phase-colliding? left-entity right-entity)
+                                (narrow-phase-detect left-entity right-entity))
         [updated-left-entity
          updated-right-entity
          updated-world] (if collision-response
                           (collision-between left-entity right-entity collision-response world)
                           [left-entity right-entity world])]
-    (.clear reusable-response)
-    (as-> updated-world w
-          (update w :ces/entities assoc left-entity-index updated-left-entity)
-          (update w :ces/entities assoc right-entity-index updated-right-entity))))
+    (update updated-world
+            :ces/entities
+            assoc
+            (:entity/id left-entity) updated-left-entity
+            (:entity/id right-entity) updated-right-entity)))
 
-(defn collision-check-necessary? [left-entity-index right-entity-index collision-index-pairs]
-  (not
-    (or
-      (= left-entity-index right-entity-index)
-      (contains? collision-index-pairs #{left-entity-index right-entity-index}))))
-
-(defn detect-for-collision-pair [initial-world [left-label right-label] label->entity-indexes label->spatial-hash]
-  (let [left-entity-indexes (get label->entity-indexes left-label)
-        right-entity-indexes (get label->entity-indexes right-label)
-        spatial-hash (get label->spatial-hash right-label)
-        initial-entities (:ces/entities initial-world)]
-    (if (or (strict-empty? left-entity-indexes) (strict-empty? right-entity-indexes))
-      initial-world
-      (let [initial-collision-index-pairs #{}
-            [updated-world]
-            (reduce
-              (fn [[world collision-index-pairs] left-entity-index]
-                (let [initial-left-entity (nth initial-entities left-entity-index)
-                      nearby-right-entity-indexes (spatial-hashing/nearby-entity-indexes spatial-hash initial-left-entity)]
-                  (reduce
-                    (fn [[world collision-index-pairs] right-entity-index]
-                      (let [check-collision? (collision-check-necessary? left-entity-index
-                                                                         right-entity-index
-                                                                         collision-index-pairs)
-                            updated-world (if check-collision?
-                                            (detect-between-indexes world
-                                                                    left-entity-index
-                                                                    right-entity-index)
-                                            world)
-                            updated-collision-index-pairs (conj collision-index-pairs #{left-entity-index right-entity-index})]
-                        [updated-world updated-collision-index-pairs]))
-                    [world collision-index-pairs]
-                    nearby-right-entity-indexes)))
-              [initial-world initial-collision-index-pairs]
-              left-entity-indexes)]
-        updated-world))))
-
-(def group-ids-by-type (partial group-by-transform :entity/collision :entity/id []))
-
-; small optimisation available: cache label->entity-indexes on add/remove by wrapping add/remove ces functions
-(defn system [collidable-entity-indexes world]
-  (let [all-entities (:ces/entities world)
-        collidable-entities (mapv #(nth all-entities %) collidable-entity-indexes)
-        label->entity-indexes (group-ids-by-type collidable-entities)
-        ; maybe just use entity spatial hash?
-        ; for each entity
-        ;   find nearby entities
-        ;   filter to collideable with current entity
-        ;   check collisions
-        label->spatial-hash (reduce-kv
-                              (fn [label->sh label entity-indexes-for-label]
-                                (let [entities-with-label (mapv #(nth all-entities %) entity-indexes-for-label)
-                                      spatial-hash (spatial-hashing/build entities-with-label (:spatial-hash-config world))]
-                                  (assoc label->sh label spatial-hash)))
-                              {}
-                              label->entity-indexes)]
+(defn check-for-entity [entity-index initial-world initial-collided-index-pairs]
+  (let [entities (:ces/entities initial-world)
+        entity (nth entities entity-index)
+        nearby-entity-indexes (spatial-hashing/nearby-entity-indexes (:entity-spatial-hash initial-world) entity)]
     (reduce
-      #(detect-for-collision-pair %1 %2 label->entity-indexes label->spatial-hash)
-      world
-      (:collision-pairs world))))
+      (fn [[world collided-index-pairs] other-entity-index]
+        (let [left-entity (nth entities entity-index)
+              right-entity (nth entities other-entity-index)
+
+              ; TODO dealing with legacy, rethink collision system entirely
+              collision-pairs (:collision-pairs world)
+              type-pair1 [(:entity/collision left-entity) (:entity/collision right-entity)]
+              type-pair2 [(:entity/collision right-entity) (:entity/collision left-entity)]
+              is-pair1? (contains? collision-pairs type-pair1)
+              is-pair2? (contains? collision-pairs type-pair2)
+              correct-types? (or is-pair1? is-pair2?)
+              [left-entity right-entity] (if is-pair2? [right-entity left-entity] [left-entity right-entity])
+
+              same-entity? (= entity-index other-entity-index)
+              already-collided? (contains? collided-index-pairs #{entity-index other-entity-index})
+
+              updated-world (if (and (not same-entity?)
+                                     (not already-collided?)
+                                     correct-types?)
+                              (detect-between-indexes world
+                                                      left-entity
+                                                      right-entity)
+                              world)
+              updated-collided-index-pairs (conj collided-index-pairs [entity-index other-entity-index])]
+          [updated-world updated-collided-index-pairs]))
+      [initial-world initial-collided-index-pairs]
+      nearby-entity-indexes)))
+
+(defn system [collidable-entity-indexes world]
+  (let [[updated-world _] (reduce
+                            (fn [[world collided-index-pairs] entity-index]
+                              (check-for-entity entity-index world collided-index-pairs))
+                            [world #{}]
+                            collidable-entity-indexes)]
+    updated-world))

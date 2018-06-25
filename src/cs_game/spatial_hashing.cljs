@@ -1,7 +1,7 @@
 (ns cs-game.spatial-hashing
   (:require [clojure.set :refer [union]]))
 
-; TODO calculate optimal cell size based on world size and average entity size
+; TODO MAYBE calculate optimal cell size based on world size and average entity size
 (defn generate-config [world-width world-height leeway-outside-world cell-size]
   (let [columns (+ (* leeway-outside-world 2) (int (/ world-width cell-size)))
         rows (+ (* leeway-outside-world 2) (int (/ world-height cell-size)))]
@@ -52,12 +52,12 @@
      :columns columns
      :rows rows}))
 
-; TODO don't return self index
 (defn nearby-entity-indexes [spatial-hash entity]
   (let [{:keys [data cell-size columns offset]} spatial-hash
         [x y] (:position entity)
         [width height] (or (:dimensions entity) [(:size entity) (:size entity)])]
-    (->> (get-points-for-aabb x y width height cell-size)
-         (mapv (fn [[x y]]
-                 (nth data (index-for-point x y columns offset))))
-         (apply union))))
+    (as-> (get-points-for-aabb x y width height cell-size) _
+          (mapv (fn [[x y]]
+                  (nth data (index-for-point x y columns offset)))
+                _)
+          (apply union _))))

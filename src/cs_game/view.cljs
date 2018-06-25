@@ -12,7 +12,7 @@
 
 (defmulti render-entity (fn [_ entity] (:view/type entity)))
 
-(defmethod render-entity :view-type/polygon [ctx {:keys [position rotation view/color view/polygon-points] :as entity}]
+(defmethod render-entity :view-type/polygon [ctx {:keys [position rotation view/color view/polygon-points]}]
   (canvas/fast-state {:ctx ctx
                       :translate position
                       :rotation (maths/degrees-to-radians rotation)}

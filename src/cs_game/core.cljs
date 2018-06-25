@@ -16,7 +16,11 @@
 (enable-console-print!)
 
 ; TODO give everything (lasers/missiles) a health, collisions cause damage, death causes explosion
-; TODO use main entity spatial hash for collisions
+; TODO rethink collision system
+; detect all collisions
+; conj {:collision-response :other-entity} to a list on each entity
+; multi method for each collision entity type
+; for an entity: loop through each collision: entity vs other-entity
 
 (def entity-type->z-index
   {:weapon 100
@@ -37,19 +41,26 @@
                           new-velocity)]
     scaled-velocity))
 
+; TODO simplify movement code
+; when held down set acceleration to x
+; when released set acceleration to zero
+; use rotation-speed and do the same (set to x, set to 0)
+; ideally only common code should know about (:delta world)
+; even code that predicts future movement should just scale by a preferred time, not the actual frame delta
+
 (defn keyboard-move [entity world]
-  (let [key-bindings (:entity/control-bindings entity)]
+  (let [{:keys [up left right]} (:entity/control-bindings entity)]
     (as-> entity e
-          (if (keyboard/held? (:up key-bindings))
+          (if (keyboard/held? up)
             (assoc e :velocity (accelerate-forwards (:rotation e)
                                                     (:velocity e)
                                                     (:max-speed e)
                                                     (* (:delta world) (:max-accel entity))))
             e)
-          (if (keyboard/held? (:left key-bindings))
+          (if (keyboard/held? left)
             (update e :rotation - (* (:delta world) (:max-rotate-speed entity)))
             e)
-          (if (keyboard/held? (:right key-bindings))
+          (if (keyboard/held? right)
             (update e :rotation + (* (:delta world) (:max-rotate-speed entity)))
             e))))
 
@@ -93,11 +104,11 @@
      :size size
 
      :fired-by-index (:entity/id entity)
-     :range 600
+     :radar-range 600
      :max-accel 900
-     :max-speed 300
-     :max-rotate-speed 270
-     :fuel-time (maths/rand-between 4 7)
+     :max-speed 170
+     :max-rotate-speed 360
+     :fuel-time 8
      :entity/state-type :entity-state-type/missile
 
      :entity/collision-polygon-points polygon-points
@@ -198,7 +209,7 @@
                  (maths/vmag)
                  (maths/abs))]
     (if (> diff 80)
-      (/ diff 5)
+      (/ diff 10)
       0)))
 
 (defmethod collisions/collision-between [:entity-collision/spaceship :entity-collision/asteroid] [spaceship asteroid response world]
@@ -240,6 +251,12 @@
        (ces/remove-entity (:entity/id laser))
        (ces/add-entities (laser-explosions laser))))
 
+
+; TODO collision issues
+; given two entities:
+; should they collide with each other?
+; should collisions be detected: add to list on each entity, respond later, which entity takes responsibility?;  5
+
 (defmethod collisions/collision-between [:entity-collision/projectile :entity-collision/asteroid] [laser asteroid _ world]
   [laser asteroid (explode-laser laser world)])
 
@@ -263,16 +280,16 @@
     (on-entity-death entity world)
     entity))
 
-(defmulti state (fn [entity _] (:entity/state-type entity)))
+(defmulti state-tick (fn [entity _] (:entity/state-type entity)))
 
 (defn do-state-update [entity world]
-  (let [result (state entity world)
+  (let [result (state-tick entity world)
         [updated-entity updated-world] (cond
                                          (vector? result) result
                                          (map? result) [result world])]
-    [(update updated-entity :entity/time maths/safe+ (:delta world)) updated-world]))
+    [(update updated-entity :entity/time + (:delta world)) updated-world]))
 
-(defmethod state :entity-state-type/explosion [explosion world]
+(defmethod state-tick :entity-state-type/explosion [explosion world]
   (let [{:keys [entity/time duration]} explosion
         ease-value (easing/out-expo time duration 0 1)]
     (if (<= time duration)
@@ -281,7 +298,7 @@
       [explosion (ces/remove-entity (:entity/id explosion) world)])))
 
 (defn find-nearest-spaceship [missile world]
-  (let [range (:range missile)
+  (let [range (:radar-range missile)
 
         entity-spatial-hash (:entity-spatial-hash world)
         entities (:ces/entities world)
@@ -292,8 +309,8 @@
                                          (not= (:entity/id %) (:fired-by-index missile))
                                          (< (maths/vmag (maths/v- (:position %) (:position missile))) range))
                                    nearby-entities)]
-    ; TODO find closest within radius
-    (first nearby-spaceships)))
+    ; TODO find closest within radius?
+    (when-not (empty? nearby-spaceships) (rand-nth nearby-spaceships))))
 
 (defn aim-missile-towards-target [missile target delta]
   (update missile
@@ -314,7 +331,7 @@
                                                     :else [current-angle angle-to-target])]
               (maths/move-towards-linear current-angle angle-to-target (* delta (:max-rotate-speed missile)))))))
 
-(defmethod state :entity-state-type/missile [missile world]
+(defmethod state-tick :entity-state-type/missile [missile world]
   (case (:missile-state missile)
     :searching
     (if-let [nearest-spaceship (find-nearest-spaceship missile world)]
@@ -473,7 +490,7 @@
                                     :change-weapon 76}}))
 
 (defn create-random-asteroid []
-  (let [size (maths/rand-between 80 500)
+  (let [size (maths/rand-between 30 300)
         points (shapes/random-sided-convex-polygon (/ size 2))
         position [(rand initial-world-width) (rand initial-world-height)]]
     {:position position
@@ -545,6 +562,8 @@
     [:entity-collision/projectile :entity-collision/asteroid]
     [:entity-collision/projectile :entity-collision/spaceship]})
 
+(def number-of-asteroids 70)
+
 (defn create-world [number-of-players]
   (let [players (case number-of-players
                   2 [(create-player1) (create-player2)]
@@ -556,13 +575,13 @@
                   4 (apply cameras-for-4players players))
         entities (-> []
                      (concatv players)
-                     (concatv (mapv create-random-asteroid (range 35))))]
+                     (concatv (mapv create-random-asteroid (range number-of-asteroids))))]
     (as-> ces/blank-world w
           (merge w {:collision-pairs collision-pairs
                     :spatial-hash-config (spatial-hashing/generate-config initial-world-width
                                                                           initial-world-height
                                                                           5
-                                                                          200)
+                                                                          400)
                     :dimensions initial-world-dimensions
                     :screen-dimensions initial-screen-dimensions
                     :cameras cameras
