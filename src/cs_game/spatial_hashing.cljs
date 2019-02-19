@@ -27,10 +27,14 @@
           py (range min-y (inc max-y))]
       [px py])))
 
-(defn- add-entity-to-spatial-hash [initial-transient-spatial-hash entity cell-size columns offset]
-  (let [id (:entity/id entity)
-        [x y] (:position entity)
-        [width height] (or (:dimensions entity) [(:size entity) (:size entity)])
+(defn- add-entity-to-spatial-hash
+  [initial-transient-spatial-hash
+   {:keys [entity/id position dimensions size]}
+   cell-size
+   columns
+   offset]
+  (let [[x y] position
+        [width height] (or dimensions [size size])
         points (get-points-for-aabb x y width height cell-size)]
     (reduce
       (fn [transient-spatial-hash [x y]]
