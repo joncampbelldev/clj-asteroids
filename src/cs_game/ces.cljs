@@ -23,10 +23,11 @@
     (system-keys-for-entity entity systems)))
 
 (defn- unregister-entity-index [entity-index world]
-  (update world
-          :ces/system->entity-indexes
-          (fn [system->entity-indexes]
-            (map-values #(disj % entity-index) system->entity-indexes))))
+  (update
+    world
+    :ces/system->entity-indexes
+    (fn [system->entity-indexes]
+      (map-values #(disj % entity-index) system->entity-indexes))))
 
 (defn- add-entity-to-world [entity initial-world systems]
   (let [reusuable-indexes (:ces/reusable-indexes initial-world)

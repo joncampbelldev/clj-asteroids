@@ -1,7 +1,10 @@
 (defproject cs-game "1.0.0"
   :min-lein-version "2.6.1"
-  :dependencies [[org.clojure/clojure "1.8.0"]
-                 [org.clojure/clojurescript "1.9.225"]
+  :dependencies [[org.clojure/clojure "1.10.0"]
+                 [org.clojure/clojurescript "1.10.520"
+                  :exclusions
+                  [[com.google.errorprone/error_prone_annotations]
+                   [com.google.code.findbugs/jsr305]]]
                  [org.clojure/core.async "0.2.385"
                   :exclusions [org.clojure/tools.reader]]
                  [figwheel-sidecar "0.5.0"]

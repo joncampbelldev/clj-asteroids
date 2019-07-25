@@ -28,13 +28,12 @@
    :asteroid 300
    :explosion 400})
 
-(defn accelerate-forwards [rotation-in-degrees velocity max-speed acceleration-magnitude]
+(defn accelerate-forwards [rotation-in-degrees velocity max-velocity-magnitude acceleration-magnitude]
   (let [rotation (maths/degrees-to-radians rotation-in-degrees)
         acceleration [(* acceleration-magnitude (maths/cos rotation))
                       (* acceleration-magnitude (maths/sin rotation))]
         new-velocity (maths/v+ velocity acceleration)
         new-velocity-magnitude (maths/vmag new-velocity)
-        max-velocity-magnitude max-speed
         scaled-velocity (if (> new-velocity-magnitude max-velocity-magnitude)
                           (let [scale (/ max-velocity-magnitude new-velocity-magnitude)]
                             (maths/v* new-velocity [scale scale]))
@@ -47,6 +46,8 @@
 ; use rotation-speed and do the same (set to x, set to 0)
 ; ideally only common code should know about (:delta world)
 ; even code that predicts future movement should just scale by a preferred time, not the actual frame delta
+
+; TODO use euler integration to correctly accelerate
 
 (defn keyboard-move [entity world]
   (let [{:keys [up left right]} (:entity/control-bindings entity)]
